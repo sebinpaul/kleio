@@ -1,7 +1,7 @@
 import { useUser } from "@clerk/nextjs";
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/";
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 export interface KeywordRequest {
   keyword: string;
@@ -74,6 +74,7 @@ class ApiService {
     });
 
     if (!response.ok) {
+      console.log(response.json())
       throw new Error("Failed to fetch keywords");
     }
 

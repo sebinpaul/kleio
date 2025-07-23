@@ -81,16 +81,35 @@ TEMPLATES = [
 WSGI_APPLICATION = 'kleio_backend.wsgi.application'
 
 
-# MongoDB Configuration (copied from Java application.properties)
-MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb+srv://kleio:passwordkleio@cluster0.xlmmcyt.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0')
-MONGODB_DATABASE = os.getenv('MONGODB_DATABASE', 'kleio')
+# MongoDB Configuration
+MONGODB_URI = os.getenv('MONGODB_URI')
+MONGODB_DATABASE = os.getenv('MONGODB_DATABASE')
 
-# Connect to MongoDB using MongoEngine
-mongoengine.connect(
-    db=MONGODB_DATABASE,
-    host=MONGODB_URI,
-    alias='default'
-)
+# Debug: Print MongoDB configuration
+print(f"DEBUG: MONGODB_URI = {MONGODB_URI}")
+print(f"DEBUG: MONGODB_DATABASE = {MONGODB_DATABASE}")
+
+# Connect to MongoDB using MongoEngine with Atlas configuration
+if MONGODB_URI:
+    try:
+        mongoengine.connect(
+            db=MONGODB_DATABASE,
+            host=MONGODB_URI,
+            alias='default',
+            serverSelectionTimeoutMS=60000,
+            connectTimeoutMS=60000,
+            socketTimeoutMS=60000,
+            maxPoolSize=5,
+            minPoolSize=1,
+            maxIdleTimeMS=30000,
+            retryWrites=True,
+            retryReads=True,
+            heartbeatFrequencyMS=10000
+        )
+        print("Connected to MongoDB Atlas successfully")
+    except Exception as e:
+        print(f"MongoDB Atlas connection error: {e}")
+        print("Please check your connection string and network connectivity")
 
 # Keep SQLite for Django's built-in tables (admin, auth, etc.)
 DATABASES = {
@@ -194,16 +213,16 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 20,
 }
 
-# Reddit API Configuration (copied from Java application.properties)
-REDDIT_CLIENT_ID = os.getenv('REDDIT_CLIENT_ID', 'sxbPluZMnswqt7Gab-mtkw')
-REDDIT_CLIENT_SECRET = os.getenv('REDDIT_CLIENT_SECRET', 's2eqFwHBPint-KINzEPuRMmG2xECjA')
+# Reddit API Configuration
+REDDIT_CLIENT_ID = os.getenv('REDDIT_CLIENT_ID')
+REDDIT_CLIENT_SECRET = os.getenv('REDDIT_CLIENT_SECRET')
 REDDIT_USER_AGENT = os.getenv('REDDIT_USER_AGENT', 'KleioMentionTracker/1.0')
 REDDIT_BASE_URL = os.getenv('REDDIT_BASE_URL', 'https://oauth.reddit.com')
 REDDIT_AUTH_URL = os.getenv('REDDIT_AUTH_URL', 'https://www.reddit.com/api/v1/access_token')
 
-# Resend Email Configuration (copied from Java application.properties)
-RESEND_API_KEY = os.getenv('RESEND_API_KEY', 're_xxxxxxxxx')
-RESEND_FROM_EMAIL = os.getenv('RESEND_FROM_EMAIL', 'onboarding@resend.dev')
+# Email Configuration
+RESEND_API_KEY = os.getenv('RESEND_API_KEY')
+RESEND_FROM_EMAIL = os.getenv('RESEND_FROM_EMAIL')
 
 # Logging Configuration (copied from Java application.properties)
 LOGGING = {
