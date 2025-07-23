@@ -6,6 +6,10 @@ urlpatterns = [
     path('health/', views.health_check, name='health_check'),
     path('health', views.health_check, name='health_check_no_slash'),
     
+    # Test endpoint
+    path('test-keywords/', views.test_keywords, name='test_keywords'),
+    path('test-keywords', views.test_keywords, name='test_keywords_no_slash'),
+    
     # General keywords endpoints
     path('keywords/', views.get_keywords, name='get_keywords'),
     path('keywords', views.get_keywords, name='get_keywords_no_slash'),

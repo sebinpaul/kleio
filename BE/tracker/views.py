@@ -11,13 +11,51 @@ import json
 def health_check(request):
     return Response({'status': 'ok'})
 
+@api_view(['GET'])
+def test_keywords(request):
+    """Test endpoint to check if keywords can be queried without user authentication"""
+    try:
+        print("DEBUG: Testing keywords query without user filter")
+        # Get all keywords (for testing only)
+        keywords = Keyword.objects.all()
+        count = keywords.count()
+        print(f"DEBUG: Total keywords in database: {count}")
+        
+        return Response({
+            'status': 'ok',
+            'total_keywords': count,
+            'message': 'Database connection and query working'
+        })
+    except Exception as e:
+        print(f"DEBUG: Test keywords error: {str(e)}")
+        import traceback
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        return Response({
+            'error': str(e),
+            'error_type': str(type(e))
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 def get_keywords(request, platform=None):
     """Get all keywords for a user or create a new keyword"""
+    # Debug: Print request information
+    print(f"DEBUG: Request method: {request.method}")
+    print(f"DEBUG: Request headers: {dict(request.headers)}")
+    print(f"DEBUG: Request path: {request.path}")
+    
     user_id = request.headers.get('X-User-ID')
+    print(f"DEBUG: User ID from header: {user_id}")
+    
     if not user_id:
-        return Response({'error': 'X-User-ID header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'error': 'X-User-ID header is required',
+            'debug_info': {
+                'available_headers': list(request.headers.keys()),
+                'request_method': request.method,
+                'request_path': request.path
+            }
+        }, status=status.HTTP_400_BAD_REQUEST)
     
     # Use platform from URL parameter or query parameter
     platform = platform or request.GET.get('platform')
@@ -58,18 +96,30 @@ def get_keywords(request, platform=None):
             }, status=status.HTTP_201_CREATED)
             
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            print(f"DEBUG: POST error: {str(e)}")
+            print(f"DEBUG: Error type: {type(e)}")
+            import traceback
+            print(f"DEBUG: Traceback: {traceback.format_exc()}")
+            return Response({
+                'error': str(e),
+                'error_type': str(type(e)),
+                'debug_info': 'Check server logs for more details'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     else:
         # Handle GET request (get keywords)
         try:
+            print(f"DEBUG: Building query for user_id: {user_id}")
             # Build query
             query = {'user_id': user_id}
             if platform:
                 query['platform'] = platform
             
+            print(f"DEBUG: Final query: {query}")
+            
             # Get keywords from database
             keywords = Keyword.objects(**query).order_by('-created_at')
+            print(f"DEBUG: Found {keywords.count()} keywords")
             
             # Convert to response format
             keywords_list = []
@@ -84,10 +134,19 @@ def get_keywords(request, platform=None):
                     "updatedAt": keyword.updated_at.isoformat()
                 })
             
+            print(f"DEBUG: Returning {len(keywords_list)} keywords")
             return Response(keywords_list)
             
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            print(f"DEBUG: GET error: {str(e)}")
+            print(f"DEBUG: Error type: {type(e)}")
+            import traceback
+            print(f"DEBUG: Traceback: {traceback.format_exc()}")
+            return Response({
+                'error': str(e),
+                'error_type': str(type(e)),
+                'debug_info': 'Check server logs for more details'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['PUT', 'DELETE'])
 @permission_classes([AllowAny])
