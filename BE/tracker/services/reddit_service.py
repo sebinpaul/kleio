@@ -5,6 +5,7 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 import logging
 from ..models import RedditToken, Keyword, Mention
+from ..enums import Platform
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ class RedditService:
                 )
             else:
                 # Search across all of Reddit
+                print(f"Searching across all of Reddit for query: {query}")
                 search_results = reddit.subreddit('all').search(
                     query, 
                     sort=sort, 
@@ -202,21 +204,22 @@ class RedditService:
         mentions = []
         
         for keyword in keywords:
-            if keyword.platform in ['reddit', 'both']:
+            if keyword.platform in [Platform.REDDIT.value, Platform.ALL.value]:
                 try:
-                    # Search for posts
+                    # Search for posts - use first filter or 'all' if no filters
+                    subreddit_filter = keyword.platform_specific_filters[0] if keyword.platform_specific_filters else 'all'
                     posts = self.search_reddit(
                         query=keyword.keyword,
-                        subreddit=keyword.subreddit,
+                        subreddit=subreddit_filter,
                         limit=50,
                         time_filter='day',
                         user_id=keyword.user_id
                     )
                     
-                    # Search for comments
+                    # Search for comments - use first filter or 'all' if no filters
                     comments = self.search_comments(
                         query=keyword.keyword,
-                        subreddit=keyword.subreddit,
+                        subreddit=subreddit_filter,
                         limit=50,
                         user_id=keyword.user_id
                     )
@@ -259,7 +262,7 @@ class RedditService:
                 title=post['title'],
                 author=post['author'],
                 source_url=post['permalink'],
-                platform='reddit',
+                platform=Platform.REDDIT.value,
                 subreddit=post['subreddit'],
                 mention_date=post['created_utc']
             )
@@ -290,7 +293,7 @@ class RedditService:
                 title=comment.get('submission_title', ''),
                 author=comment['author'],
                 source_url=comment['permalink'],
-                platform='reddit',
+                platform=Platform.REDDIT.value,
                 subreddit=comment['subreddit'],
                 mention_date=comment['created_utc']
             )

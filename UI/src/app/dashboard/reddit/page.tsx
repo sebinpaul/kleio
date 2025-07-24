@@ -8,8 +8,12 @@ export default function RedditDashboard() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const platform = getPlatformById("reddit");
 
-  if (!platform) return null;
+  const handleKeywordAdded = () => {
+    // This will trigger the KeywordList to refresh via the onRefresh prop
+  };
 
+  if (!platform) return null;
+  console.log("platform", platform);
   return (
     <PlatformDashboard
       platform={platform}
@@ -17,7 +21,7 @@ export default function RedditDashboard() {
       isAddModalOpen={isAddModalOpen}
       onAddModalOpen={() => setIsAddModalOpen(true)}
       onAddModalClose={() => setIsAddModalOpen(false)}
-      onKeywordAdded={() => {}}
+      onKeywordAdded={handleKeywordAdded}
     />
   );
 }

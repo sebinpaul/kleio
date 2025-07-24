@@ -25,4 +25,16 @@ urlpatterns = [
     path('platforms/<str:platform>/keywords/<str:keyword_id>', views.update_keyword, name='update_platform_keyword_no_slash'),
     path('platforms/<str:platform>/keywords/<str:keyword_id>/toggle/', views.toggle_keyword, name='toggle_platform_keyword'),
     path('platforms/<str:platform>/keywords/<str:keyword_id>/toggle', views.toggle_keyword, name='toggle_platform_keyword_no_slash'),
+    
+    # Stream monitoring endpoints
+    path('stream/start/', views.start_stream_monitoring, name='start_stream_monitoring'),
+    path('stream/start', views.start_stream_monitoring, name='start_stream_monitoring_no_slash'),
+    path('stream/stop/', views.stop_stream_monitoring, name='stop_stream_monitoring'),
+    path('stream/stop', views.stop_stream_monitoring, name='stop_stream_monitoring_no_slash'),
+    path('stream/status/', views.get_stream_status, name='get_stream_status'),
+    path('stream/status', views.get_stream_status, name='get_stream_status_no_slash'),
+    
+    # Auto monitoring endpoints
+    path('auto-monitor/status/', views.get_auto_monitor_status, name='get_auto_monitor_status'),
+    path('auto-monitor/status', views.get_auto_monitor_status, name='get_auto_monitor_status_no_slash'),
 ] 

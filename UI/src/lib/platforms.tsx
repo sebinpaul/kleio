@@ -1,7 +1,8 @@
 import { ReactNode } from "react";
+import { Platform as PlatformEnum } from "./enums";
 
-export interface Platform {
-  id: string;
+export interface PlatformConfig {
+  id: PlatformEnum;
   name: string;
   icon: ReactNode;
   description: string;
@@ -13,9 +14,9 @@ export interface Platform {
   }>;
 }
 
-export const platforms: Platform[] = [
+export const platforms: PlatformConfig[] = [
   {
-    id: "reddit",
+    id: PlatformEnum.REDDIT,
     name: "Reddit",
     icon: (
       <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
@@ -43,7 +44,7 @@ export const platforms: Platform[] = [
     ],
   },
   {
-    id: "hackernews",
+    id: PlatformEnum.HACKERNEWS,
     name: "Hacker News",
     icon: (
       <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
@@ -72,6 +73,6 @@ export const platforms: Platform[] = [
   },
 ];
 
-export function getPlatformById(id: string): Platform | undefined {
+export function getPlatformById(id: string): PlatformConfig | undefined {
   return platforms.find((platform) => platform.id === id);
 }

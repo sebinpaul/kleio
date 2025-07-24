@@ -85,9 +85,6 @@ WSGI_APPLICATION = 'kleio_backend.wsgi.application'
 MONGODB_URI = os.getenv('MONGODB_URI')
 MONGODB_DATABASE = os.getenv('MONGODB_DATABASE')
 
-# Debug: Print MongoDB configuration
-print(f"DEBUG: MONGODB_URI = {MONGODB_URI}")
-print(f"DEBUG: MONGODB_DATABASE = {MONGODB_DATABASE}")
 
 # Connect to MongoDB using MongoEngine with Atlas configuration
 if MONGODB_URI:
