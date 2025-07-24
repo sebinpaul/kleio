@@ -17,14 +17,6 @@ export default function DashboardLayout({
       <div className="min-h-screen bg-background">
         <Sidebar />
         <div className="ml-64">
-          <header className="bg-background border-b">
-            <div className="px-6 py-4 flex justify-between items-center">
-              <h1 className="text-2xl font-bold">Kleio Dashboard</h1>
-              <div className="text-sm text-muted-foreground">
-                Authentication disabled for testing
-              </div>
-            </div>
-          </header>
           <main className="p-6">{children}</main>
         </div>
       </div>
@@ -47,16 +39,6 @@ export default function DashboardLayout({
     <div className="min-h-screen bg-background">
       <Sidebar />
       <div className="ml-64">
-        <header className="bg-background border-b">
-          <div className="px-6 py-4 flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold">Kleio Dashboard</h1>
-              <p className="text-sm text-muted-foreground">
-                Monitor your keywords across platforms
-              </p>
-            </div>
-          </div>
-        </header>
         <main className="p-6">{children}</main>
       </div>
     </div>
