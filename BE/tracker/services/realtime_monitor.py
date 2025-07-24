@@ -1,138 +1,136 @@
-import time
+import os
 import logging
 import threading
-from datetime import datetime, timedelta
+import time
+from datetime import datetime
+from typing import List, Dict, Optional
+import praw
+from praw.models import Subreddit
 from django.utils import timezone
 from .reddit_service import RedditService
 from .matching_engine import GenericMatchingEngine, MatchResult
+from .email_service import email_notification_service
 from ..models import Keyword, Mention
 from ..enums import Platform, ContentType, MentionContentType
 import mongoengine
-import os
 
 logger = logging.getLogger(__name__)
 
 class RealtimeStreamMonitor:
-    """Real-time keyword monitoring using PRAW SubredditStream"""
+    """Manages real-time monitoring of Reddit streams for keyword mentions"""
     
     def __init__(self):
-        self.reddit_service = RedditService()
+        self.reddit = None
+        self.stop_monitoring = False
+        self.monitoring_threads = []
         self.matching_engine = GenericMatchingEngine()
-        self.monitoring_threads = {}
-        self.stop_monitoring = False
-        
+    
     def start_stream_monitoring(self, keywords=None):
-        """Start real-time stream monitoring for keywords"""
-        # Reset the stop flag to allow new monitoring
-        self.stop_monitoring = False
-        
-        if keywords is None:
-            keywords = Keyword.objects.filter(is_active=True)
-        
-        # Handle both QuerySet and list
-        keywords_count = len(keywords)
+        """Start monitoring Reddit streams for keyword mentions"""
+        try:
+            self.stop_monitoring = False
             
-        
-        logger.info(f"Starting real-time stream monitoring for {keywords_count} keywords")
-        
-        # Group keywords by subreddit for efficient streaming
-        subreddit_keywords = self._group_keywords_by_subreddit(keywords)
-        for subreddit_name, keywords_list in subreddit_keywords.items():
-            if not self.stop_monitoring:
+            # Initialize Reddit client
+            if not self.reddit:
+                self.reddit = praw.Reddit(
+                    client_id=os.environ.get('REDDIT_CLIENT_ID'),
+                    client_secret=os.environ.get('REDDIT_CLIENT_SECRET'),
+                    user_agent=os.environ.get('REDDIT_USER_AGENT', 'KleioBot/1.0')
+                )
+            
+            # Get keywords to monitor
+            if keywords is None:
+                keywords = Keyword.objects.filter(active=True)
+            
+            if not keywords:
+                logger.info("No active keywords to monitor")
+                return
+            
+            # Group keywords by subreddit
+            subreddit_keywords = self._group_keywords_by_subreddit(keywords)
+            
+            # Start monitoring each subreddit
+            for subreddit_name, keywords_list in subreddit_keywords.items():
+                if self.stop_monitoring:
+                    break
+                
                 thread = threading.Thread(
                     target=self._monitor_subreddit_stream,
                     args=(subreddit_name, keywords_list),
                     daemon=True
                 )
                 thread.start()
-                self.monitoring_threads[subreddit_name] = thread
-                logger.info(f"Started monitoring stream for r/{subreddit_name}")
-        
-        logger.info("Real-time stream monitoring started successfully")
+                self.monitoring_threads.append(thread)
+                logger.info(f"Started monitoring r/{subreddit_name} with {len(keywords_list)} keywords")
+            
+            logger.info(f"Started monitoring {len(subreddit_keywords)} subreddits with {len(keywords)} total keywords")
+            
+        except Exception as e:
+            logger.error(f"Error starting stream monitoring: {e}")
     
     def stop_stream_monitoring(self):
         """Stop all monitoring threads"""
+        logger.info("Stopping stream monitoring...")
         self.stop_monitoring = True
-        logger.info("Stopping real-time stream monitoring...")
         
         # Wait for threads to finish
-        for subreddit, thread in self.monitoring_threads.items():
-            if thread.is_alive():
-                thread.join(timeout=5)
-                logger.info(f"Stopped monitoring r/{subreddit}")
+        for thread in self.monitoring_threads:
+            thread.join(timeout=5)
         
         self.monitoring_threads.clear()
-        logger.info("Real-time stream monitoring stopped")
+        logger.info("Stream monitoring stopped")
     
     def _group_keywords_by_subreddit(self, keywords):
-        """Group keywords by subreddit for efficient streaming"""
+        """Group keywords by subreddit for efficient monitoring"""
         subreddit_keywords = {}
         
         for keyword in keywords:
-            if keyword.platform in [Platform.REDDIT.value, Platform.ALL.value]:
-                # Use platform-specific filters for subreddits
-                if keyword.platform_specific_filters:
-                    # If specific subreddits are specified, monitor each one
-                    for subreddit in keyword.platform_specific_filters:
-                        if subreddit not in subreddit_keywords:
-                            subreddit_keywords[subreddit] = []
-                        subreddit_keywords[subreddit].append(keyword)
-                else:
-                    # If no specific subreddits, monitor 'all'
-                    if 'all' not in subreddit_keywords:
-                        subreddit_keywords['all'] = []
-                    subreddit_keywords['all'].append(keyword)
+            if keyword.platform in ['reddit', 'both']:
+                # Get subreddit filters for this keyword
+                subreddits = keyword.platform_specific_filters if keyword.platform_specific_filters else ['all']
+                
+                for subreddit in subreddits:
+                    if subreddit not in subreddit_keywords:
+                        subreddit_keywords[subreddit] = []
+                    subreddit_keywords[subreddit].append(keyword)
         
         return subreddit_keywords
     
     def _monitor_subreddit_stream(self, subreddit_name, keywords):
-        """Monitor a specific subreddit stream for keywords"""
+        """Monitor a specific subreddit for mentions"""
         try:
-            reddit = self.reddit_service.get_reddit_instance()
-            subreddit = reddit.subreddit(subreddit_name)
+            subreddit = self.reddit.subreddit(subreddit_name)
             
-            logger.info(f"Starting stream monitoring for r/{subreddit_name} with {len(keywords)} keywords")
-            
-            # Monitor submissions stream
+            # Monitor both submissions and comments
             self._monitor_submissions_stream(subreddit, keywords)
+            self._monitor_comments_stream(subreddit, keywords)
             
         except Exception as e:
-            logger.error(f"Error in subreddit stream monitoring for r/{subreddit_name}: {e}")
+            logger.error(f"Error monitoring r/{subreddit_name}: {e}")
     
     def _monitor_submissions_stream(self, subreddit, keywords):
-        """Monitor submissions stream for keywords"""
+        """Monitor submissions stream for mentions"""
         try:
-            # Get the stream with skip_existing=True to only get new submissions
-            for submission in subreddit.stream.submissions(skip_existing=True):
+            for submission in subreddit.stream.submissions():
                 if self.stop_monitoring:
                     break
-                # Check if submission matches any keywords
+                
                 self._check_submission_for_keywords(submission, keywords)
                 
         except Exception as e:
-            logger.error(f"Error in submissions stream: {e}")
-            # Restart the stream after a delay
-            time.sleep(30)
-            if not self.stop_monitoring:
-                self._monitor_submissions_stream(subreddit, keywords)
+            logger.error(f"Error in submissions stream for r/{subreddit.display_name}: {e}")
     
     def _monitor_comments_stream(self, subreddit, keywords):
-        """Monitor comments stream for keywords"""
+        """Monitor comments stream for mentions"""
         try:
-            # Get the stream with skip_existing=True to only get new comments
-            for comment in subreddit.stream.comments(skip_existing=True):
+            for comment in subreddit.stream.comments():
                 if self.stop_monitoring:
                     break
                 
-                # Check if comment matches any keywords
                 self._check_comment_for_keywords(comment, keywords)
                 
         except Exception as e:
-            logger.error(f"Error in comments stream: {e}")
-            # Restart the stream after a delay
-            time.sleep(30)
-            if not self.stop_monitoring:
-                self._monitor_comments_stream(subreddit, keywords)
+            logger.error(f"Error in comments stream for r/{subreddit.display_name}: {e}")
     
     def _check_submission_for_keywords(self, submission, keywords):
         """Check if a submission matches any keywords"""
@@ -169,8 +167,8 @@ class RealtimeStreamMonitor:
                                 logger.info(f"   Title: {submission.title[:50]}...")
                                 logger.info(f"   URL: https://reddit.com{submission.permalink}")
                                 
-                                # Send notification (you can implement this)
-                                self._send_notification(mention)
+                                # Send email notification
+                                self._send_email_notification(mention, keyword)
                                 
                             except Exception as e:
                                 logger.error(f"Error saving mention: {e}")
@@ -199,14 +197,36 @@ class RealtimeStreamMonitor:
                             logger.info(f"   Comment: {comment.body[:50]}...")
                             logger.info(f"   URL: https://reddit.com{comment.permalink}")
                             
-                            # Send notification (you can implement this)
-                            self._send_notification(mention)
+                            # Send email notification
+                            self._send_email_notification(mention, keyword)
                             
                         except Exception as e:
                             logger.error(f"Error saving mention: {e}")
         
         except Exception as e:
             logger.error(f"Error checking comment for keywords: {e}")
+    
+    def _send_email_notification(self, mention, keyword):
+        """Send email notification for a new mention"""
+        try:
+            # Send email notification using the service
+            success = email_notification_service.send_mention_notification(mention)
+            if success:
+                logger.info(f"Email notification sent for mention {mention.id}")
+            else:
+                logger.error(f"Failed to send email notification for mention {mention.id}")
+                
+        except Exception as e:
+            logger.error(f"Error sending email notification: {e}")
+    
+    def _get_user_email(self, user_id):
+        """Get user email from user profile - DEPRECATED, use email service instead"""
+        try:
+            # This method is deprecated, use email_notification_service.get_user_email instead
+            return email_notification_service.get_user_email(user_id)
+        except Exception as e:
+            logger.error(f"Error getting user email: {e}")
+            return None
     
     def _create_mention_from_submission(self, keyword, submission, match_result: MatchResult, content_type: str):
         """Create a Mention object from a Reddit submission"""
@@ -286,11 +306,6 @@ class RealtimeStreamMonitor:
             ContentType.BODY.value: MentionContentType.BODY.value,
         }
         return mapping.get(content_type, MentionContentType.TITLE.value)
-    
-    def _send_notification(self, mention):
-        """Send notification for new mention (placeholder)"""
-        # TODO: Implement email/Slack notification
-        logger.info(f"📧 Would send notification for mention: {mention.keyword_id}")
 
 # Global instance
 realtime_stream_monitor = RealtimeStreamMonitor() 
