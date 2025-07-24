@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -8,12 +8,12 @@ import {
   CardHeader,
   CardTitle,
 } from "../../components/ui/card";
-import { Button } from "../../components/ui/button";
-import KeywordList from "../../components/KeywordList";
-import AddKeywordModal from "../../components/AddKeywordModal";
+import KeywordList, { KeywordListRef } from "../../components/KeywordList";
+import KeywordModal from "../../components/KeywordModal";
 
 export default function Dashboard() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const keywordListRef = useRef<KeywordListRef>(null);
 
   return (
     <div className="space-y-6">
@@ -24,7 +24,6 @@ export default function Dashboard() {
             Monitor your keywords across all platforms
           </p>
         </div>
-        <Button onClick={() => setIsAddModalOpen(true)}>Add Keyword</Button>
       </div>
 
       {/* Platform Stats */}
@@ -107,15 +106,15 @@ export default function Dashboard() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <KeywordList />
+          <KeywordList ref={keywordListRef} />
         </CardContent>
       </Card>
 
-      <AddKeywordModal
+      <KeywordModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
-        onKeywordAdded={() => {
-          // The KeywordList component will reload automatically
+        onKeywordSaved={() => {
+          keywordListRef.current?.refresh();
         }}
       />
     </div>

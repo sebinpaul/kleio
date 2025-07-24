@@ -1,22 +1,36 @@
-from mongoengine import Document, StringField, BooleanField, DateTimeField, ReferenceField, IntField, URLField, ListField
+from mongoengine import Document, StringField, BooleanField, DateTimeField, ReferenceField, IntField, URLField, ListField, DictField, FloatField
 from django.contrib.auth.models import User
 from django.utils import timezone
 from datetime import datetime
+from .enums import (
+    PlatformChoices, NotificationFrequencyChoices, CaseSensitivityChoices, 
+    MatchModeChoices, ContentTypeChoices, MentionContentTypeChoices,
+    DEFAULT_CONTENT_TYPES
+)
 
 
 class Keyword(Document):
     """Model for tracking keywords to monitor"""
     
-    PLATFORM_CHOICES = [
-        ('reddit', 'Reddit'),
-        ('hackernews', 'Hacker News'),
-        ('both', 'Both'),
-    ]
-    
     user_id = StringField(required=True, help_text="Django User ID")
     keyword = StringField(required=True, max_length=255, help_text="Keyword to monitor")
-    platform = StringField(choices=PLATFORM_CHOICES, default='both', max_length=20)
-    subreddit = StringField(max_length=100, help_text="Specific subreddit to monitor (optional)")
+    platform = StringField(choices=PlatformChoices.get_choices(), default=PlatformChoices.ALL[0], max_length=20)
+    platform_specific_filters = ListField(StringField(), default=list, help_text="Platform-specific filters (e.g., subreddits, hashtags, companies)")
+    
+    # Enhanced matching criteria
+    case_sensitive = BooleanField(default=False, help_text="Whether keyword matching is case sensitive")
+    match_mode = StringField(
+        choices=MatchModeChoices.get_choices(),
+        default=MatchModeChoices.CONTAINS[0],
+        help_text="How to match the keyword in content"
+    )
+    content_types = ListField(
+        StringField(),
+        choices=ContentTypeChoices.get_choices(),
+        default=lambda: DEFAULT_CONTENT_TYPES.get(PlatformChoices.ALL[0], [ContentTypeChoices.TITLES[0], ContentTypeChoices.BODY[0], ContentTypeChoices.COMMENTS[0]]),
+        help_text="Which content types to monitor"
+    )
+    
     is_active = BooleanField(default=True, help_text="Whether this keyword is actively being monitored")
     created_at = DateTimeField(default=timezone.now)
     updated_at = DateTimeField(default=timezone.now)
@@ -41,11 +55,6 @@ class Keyword(Document):
 class Mention(Document):
     """Model for storing discovered mentions"""
     
-    PLATFORM_CHOICES = [
-        ('reddit', 'Reddit'),
-        ('hackernews', 'Hacker News'),
-    ]
-    
     keyword_id = StringField(required=True, help_text="Keyword ID")
     user_id = StringField(required=True, help_text="Django User ID")
     
@@ -56,8 +65,20 @@ class Mention(Document):
     source_url = URLField(required=True, help_text="URL to the source post/comment")
     
     # Platform details
-    platform = StringField(choices=PLATFORM_CHOICES, required=True)
+    platform = StringField(choices=PlatformChoices.get_choices()[:4], required=True)  # Exclude 'both' for mentions
     subreddit = StringField(max_length=100, help_text="Subreddit where mention was found")
+    
+    # Content type tracking
+    content_type = StringField(
+        choices=MentionContentTypeChoices.get_choices(),
+        required=True,
+        help_text="Type of content where keyword was found"
+    )
+    
+    # Matching details for analytics
+    matched_text = StringField(help_text="The exact text that matched the keyword")
+    match_position = IntField(help_text="Position where keyword was found in content")
+    match_confidence = FloatField(default=1.0, help_text="Confidence score of the match")
     
     # Timestamps
     mention_date = DateTimeField(help_text="When the mention was created on the platform")
@@ -130,12 +151,8 @@ class UserProfile(Document):
     email_notifications = BooleanField(default=True, help_text="Whether to send email notifications")
     notification_frequency = StringField(
         max_length=20,
-        choices=[
-            ('instant', 'Instant'),
-            ('hourly', 'Hourly'),
-            ('daily', 'Daily'),
-        ],
-        default='instant',
+        choices=NotificationFrequencyChoices.get_choices(),
+        default=NotificationFrequencyChoices.INSTANT[0],
         help_text="How often to send notifications"
     )
     created_at = DateTimeField(default=timezone.now)

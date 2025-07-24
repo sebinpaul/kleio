@@ -8,6 +8,10 @@ export default function HackerNewsDashboard() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const platform = getPlatformById("hackernews");
 
+  const handleKeywordAdded = () => {
+    // This will trigger the KeywordList to refresh via the onRefresh prop
+  };
+
   if (!platform) return null;
 
   return (
@@ -17,7 +21,7 @@ export default function HackerNewsDashboard() {
       isAddModalOpen={isAddModalOpen}
       onAddModalOpen={() => setIsAddModalOpen(true)}
       onAddModalClose={() => setIsAddModalOpen(false)}
-      onKeywordAdded={() => {}}
+      onKeywordAdded={handleKeywordAdded}
     />
   );
 }

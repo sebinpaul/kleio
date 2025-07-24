@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
+import React, { ReactNode, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -10,8 +10,9 @@ import {
 } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
-import KeywordList from "./KeywordList";
-import AddKeywordModal from "./AddKeywordModal";
+import KeywordList, { KeywordListRef } from "./KeywordList";
+import KeywordModal from "./KeywordModal";
+import { Platform } from "@/lib/enums";
 
 interface PlatformStats {
   title: string;
@@ -21,7 +22,7 @@ interface PlatformStats {
 
 interface PlatformDashboardProps {
   platform: {
-    id: string;
+    id: Platform;
     name: string;
     icon: ReactNode;
     description: string;
@@ -42,6 +43,7 @@ export default function PlatformDashboard({
   onAddModalClose,
   onKeywordAdded,
 }: PlatformDashboardProps) {
+  const keywordListRef = useRef<KeywordListRef>(null);
   return (
     <div className="space-y-6">
       {/* Platform Header */}
@@ -91,16 +93,19 @@ export default function PlatformDashboard({
                 Platform-specific keywords
               </span>
             </div>
-            <KeywordList platform={platform.id} />
+            <KeywordList ref={keywordListRef} platform={platform.id} />
           </div>
         </CardContent>
       </Card>
 
-      <AddKeywordModal
+      <KeywordModal
         isOpen={isAddModalOpen}
         onClose={onAddModalClose}
         platform={platform.id}
-        onKeywordAdded={onKeywordAdded}
+        onKeywordSaved={() => {
+          keywordListRef.current?.refresh();
+          onKeywordAdded?.();
+        }}
       />
     </div>
   );

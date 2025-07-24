@@ -1,28 +1,35 @@
 import { useUser } from "@clerk/nextjs";
+import { Platform, MatchMode, ContentType } from "./enums";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 export interface KeywordRequest {
   keyword: string;
-  platform: string;
+  platform: Platform;
   platformSpecificFilters?: string[];
-  platformConfig?: Record<string, any>;
+  platformConfig?: Record<string, unknown>;
   checkFrequency?: number;
   emailNotifications?: boolean;
   slackNotifications?: boolean;
+  caseSensitive?: boolean;
+  matchMode?: MatchMode;
+  contentTypes?: ContentType[];
 }
 
 export interface Keyword {
   id: string;
   keyword: string;
   userId: string;
-  platform: string;
+  platform: Platform;
   platformSpecificFilters?: string[];
-  platformConfig?: Record<string, any>;
+  platformConfig?: Record<string, unknown>;
   checkFrequency?: number;
   emailNotifications?: boolean;
   slackNotifications?: boolean;
+  caseSensitive?: boolean;
+  matchMode?: MatchMode;
+  contentTypes?: ContentType[];
   enabled: boolean;
   createdAt: string;
   updatedAt: string;

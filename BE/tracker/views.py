@@ -5,7 +5,11 @@ from rest_framework import status
 from django.http import JsonResponse
 from django.utils import timezone
 from .models import Keyword
+from .services.realtime_monitor import realtime_stream_monitor
+from .services.auto_monitor_service import auto_monitor_service
+from .enums import Platform
 import json
+import threading
 
 @api_view(['GET'])
 def health_check(request):
@@ -65,7 +69,7 @@ def get_keywords(request, platform=None):
         data = request.data
         
         # Use platform from URL parameter or request data
-        platform = platform or data.get('platform', 'reddit')
+        platform = platform or data.get('platform', Platform.REDDIT.value)
         
         # Validate required fields
         if not data.get('keyword'):
@@ -73,11 +77,17 @@ def get_keywords(request, platform=None):
         
         # Create new keyword
         try:
+            # Handle platform-specific filters
+            platform_filters = data.get('platformSpecificFilters', [])
+            if isinstance(platform_filters, str):
+                # If it's a string, split by comma
+                platform_filters = [f.strip() for f in platform_filters.split(',') if f.strip()]
+            
             keyword = Keyword(
                 user_id=user_id,
                 keyword=data.get('keyword'),
                 platform=platform,
-                subreddit=data.get('subreddit', ''),
+                platform_specific_filters=platform_filters,
                 is_active=data.get('enabled', True),
                 created_at=timezone.now(),
                 updated_at=timezone.now()
@@ -90,6 +100,7 @@ def get_keywords(request, platform=None):
                 "keyword": keyword.keyword,
                 "userId": keyword.user_id,
                 "platform": keyword.platform,
+                "platformSpecificFilters": keyword.platform_specific_filters,
                 "enabled": keyword.is_active,
                 "createdAt": keyword.created_at.isoformat(),
                 "updatedAt": keyword.updated_at.isoformat()
@@ -129,6 +140,7 @@ def get_keywords(request, platform=None):
                     "keyword": keyword.keyword,
                     "userId": keyword.user_id,
                     "platform": keyword.platform,
+                    "platformSpecificFilters": keyword.platform_specific_filters,
                     "enabled": keyword.is_active,
                     "createdAt": keyword.created_at.isoformat(),
                     "updatedAt": keyword.updated_at.isoformat()
@@ -176,8 +188,12 @@ def update_keyword(request, keyword_id, platform=None):
                 keyword.keyword = data['keyword']
             if 'platform' in data:
                 keyword.platform = data['platform']
-            if 'subreddit' in data:
-                keyword.subreddit = data['subreddit']
+            if 'platformSpecificFilters' in data:
+                platform_filters = data['platformSpecificFilters']
+                if isinstance(platform_filters, str):
+                    # If it's a string, split by comma
+                    platform_filters = [f.strip() for f in platform_filters.split(',') if f.strip()]
+                keyword.platform_specific_filters = platform_filters
             if 'enabled' in data:
                 keyword.is_active = data['enabled']
             
@@ -190,6 +206,7 @@ def update_keyword(request, keyword_id, platform=None):
                 "keyword": keyword.keyword,
                 "userId": keyword.user_id,
                 "platform": keyword.platform,
+                "platformSpecificFilters": keyword.platform_specific_filters,
                 "enabled": keyword.is_active,
                 "createdAt": keyword.created_at.isoformat(),
                 "updatedAt": keyword.updated_at.isoformat()
@@ -223,9 +240,99 @@ def toggle_keyword(request, keyword_id, platform=None):
             "keyword": keyword.keyword,
             "userId": keyword.user_id,
             "platform": keyword.platform,
+            "platformSpecificFilters": keyword.platform_specific_filters,
             "enabled": keyword.is_active,
             "createdAt": keyword.created_at.isoformat(),
             "updatedAt": keyword.updated_at.isoformat()
+        })
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def start_stream_monitoring(request):
+    """Start real-time stream monitoring for a user's keywords"""
+    user_id = request.headers.get('X-User-ID')
+    if not user_id:
+        return Response({'error': 'X-User-ID header is required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        # Get user's active keywords
+        keywords = Keyword.objects.filter(user_id=user_id, is_active=True)
+        
+        if not keywords:
+            return Response({
+                'error': 'No active keywords found for user',
+                'user_id': user_id
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Start stream monitoring in a separate thread
+        def start_monitoring():
+            realtime_stream_monitor.start_stream_monitoring(keywords)
+        
+        monitoring_thread = threading.Thread(target=start_monitoring, daemon=True)
+        monitoring_thread.start()
+        
+        return Response({
+            'status': 'success',
+            'message': 'Real-time stream monitoring started',
+            'keywords_count': keywords.count(),
+            'keywords': [
+                {
+                    'id': str(kw.id),
+                    'keyword': kw.keyword,
+                    'platform': kw.platform,
+                    'platformSpecificFilters': kw.platform_specific_filters
+                }
+                for kw in keywords
+            ]
+        })
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def stop_stream_monitoring(request):
+    """Stop real-time stream monitoring"""
+    try:
+        realtime_stream_monitor.stop_stream_monitoring()
+        
+        return Response({
+            'status': 'success',
+            'message': 'Real-time stream monitoring stopped'
+        })
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_stream_status(request):
+    """Get current stream monitoring status"""
+    try:
+        is_monitoring = len(realtime_stream_monitor.monitoring_threads) > 0
+        
+        return Response({
+            'is_monitoring': is_monitoring,
+            'active_threads': len(realtime_stream_monitor.monitoring_threads),
+            'monitored_subreddits': list(realtime_stream_monitor.monitoring_threads.keys())
+        })
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_auto_monitor_status(request):
+    """Get automatic monitoring service status"""
+    try:
+        status = auto_monitor_service.get_status()
+        
+        return Response({
+            'auto_monitoring': status,
+            'message': 'Automatic monitoring service status'
         })
         
     except Exception as e:

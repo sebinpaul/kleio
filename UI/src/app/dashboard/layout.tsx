@@ -1,6 +1,6 @@
 "use client";
 
-import { UserButton, useUser } from "@clerk/nextjs";
+import { useUser } from "@clerk/nextjs";
 import Sidebar from "../../components/Sidebar";
 
 const authEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED !== "false";
@@ -10,7 +10,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { isSignedIn, user } = useUser();
+  const { isSignedIn } = useUser();
 
   if (!authEnabled) {
     return (
@@ -54,12 +54,6 @@ export default function DashboardLayout({
               <p className="text-sm text-muted-foreground">
                 Monitor your keywords across platforms
               </p>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-muted-foreground">
-                {user?.username || user?.primaryEmailAddress?.emailAddress}
-              </span>
-              <UserButton afterSignOutUrl="/" />
             </div>
           </div>
         </header>
