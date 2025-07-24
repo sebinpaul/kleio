@@ -8,9 +8,6 @@ import {
   SignedIn,
   SignedOut,
   RedirectToSignIn,
-  SignInButton,
-  SignUpButton,
-  UserButton,
 } from "@clerk/nextjs";
 
 const raleway = Raleway({
@@ -39,15 +36,6 @@ export default function RootLayout({
       >
         {authEnabled ? (
           <ClerkProvider>
-            <header className="flex justify-end items-center p-4 gap-4 h-16">
-              <SignedOut>
-                <SignInButton />
-                <SignUpButton />
-              </SignedOut>
-              <SignedIn>
-                <UserButton />
-              </SignedIn>
-            </header>
             <SignedIn>{children}</SignedIn>
             <SignedOut>
               <RedirectToSignIn />
@@ -55,11 +43,6 @@ export default function RootLayout({
           </ClerkProvider>
         ) : (
           <>
-            <header className="flex justify-end items-center p-4 gap-4 h-16">
-              <div className="text-sm text-gray-500">
-                Auth disabled for testing
-              </div>
-            </header>
             {children}
           </>
         )}
