@@ -8,11 +8,10 @@ import praw
 from praw.models import Subreddit
 from django.utils import timezone
 from .reddit_service import RedditService
-from .matching_engine import GenericMatchingEngine, MatchResult
-from .email_service import email_notification_service
-from ..models import Keyword, Mention
-from ..enums import Platform, ContentType, MentionContentType
-import mongoengine
+from core.services.matching_engine import GenericMatchingEngine, MatchResult
+from core.services.email_service import email_notification_service
+from core.models import Keyword, Mention
+from core.enums import Platform, ContentType, MentionContentType
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +39,7 @@ class RealtimeStreamMonitor:
             
             # Get keywords to monitor
             if keywords is None:
-                keywords = Keyword.objects.filter(active=True)
+                keywords = Keyword.objects.filter(is_active=True)
             
             if not keywords:
                 logger.info("No active keywords to monitor")
@@ -85,7 +84,7 @@ class RealtimeStreamMonitor:
         subreddit_keywords = {}
         
         for keyword in keywords:
-            if keyword.platform in ['reddit', 'both']:
+            if keyword.platform in [Platform.REDDIT.value, Platform.ALL.value]:
                 # Get subreddit filters for this keyword
                 subreddits = keyword.platform_specific_filters if keyword.platform_specific_filters else ['all']
                 
@@ -101,9 +100,25 @@ class RealtimeStreamMonitor:
         try:
             subreddit = self.reddit.subreddit(subreddit_name)
             
-            # Monitor both submissions and comments
-            self._monitor_submissions_stream(subreddit, keywords)
-            self._monitor_comments_stream(subreddit, keywords)
+            # Start both submissions and comments monitoring in separate threads
+            submissions_thread = threading.Thread(
+                target=self._monitor_submissions_stream,
+                args=(subreddit, keywords),
+                daemon=True
+            )
+            comments_thread = threading.Thread(
+                target=self._monitor_comments_stream,
+                args=(subreddit, keywords),
+                daemon=True
+            )
+            
+            submissions_thread.start()
+            comments_thread.start()
+            
+            # Add threads to monitoring list
+            self.monitoring_threads.extend([submissions_thread, comments_thread])
+            
+            logger.info(f"Started monitoring r/{subreddit_name} with {len(keywords)} keywords")
             
         except Exception as e:
             logger.error(f"Error monitoring r/{subreddit_name}: {e}")
@@ -123,6 +138,8 @@ class RealtimeStreamMonitor:
     def _monitor_comments_stream(self, subreddit, keywords):
         """Monitor comments stream for mentions"""
         try:
+            logger.info(f"Starting comments stream monitoring for r/{subreddit.display_name}")
+            
             for comment in subreddit.stream.comments():
                 if self.stop_monitoring:
                     break
@@ -182,13 +199,24 @@ class RealtimeStreamMonitor:
             # Check comments content type
             content = comment.body
             
+            # Debug logging
+            logger.debug(f"Checking comment: {content[:100]}... in r/{comment.subreddit.display_name}")
+            logger.debug(f"Keywords to check: {[kw.keyword for kw in keywords]}")
+            
             for keyword in keywords:
-                if not self.matching_engine.should_monitor_content(keyword, ContentType.COMMENTS.value):
+                # Check if keyword should monitor comments
+                should_monitor = self.matching_engine.should_monitor_content(keyword, ContentType.COMMENTS.value)
+                logger.debug(f"Keyword '{keyword.keyword}' should monitor comments: {should_monitor}")
+                logger.debug(f"Keyword content types: {keyword.content_types}")
+                
+                if not should_monitor:
+                    logger.debug(f"Skipping keyword '{keyword.keyword}' - not monitoring comments")
                     continue
                 
                 match_result = self.matching_engine.match_keyword(keyword, content, ContentType.COMMENTS.value)
                 
                 if match_result:
+                    logger.info(f"🎯 Match found! Keyword: '{keyword.keyword}' in comment")
                     mention = self._create_mention_from_comment(keyword, comment, match_result)
                     if mention:
                         try:
@@ -202,6 +230,8 @@ class RealtimeStreamMonitor:
                             
                         except Exception as e:
                             logger.error(f"Error saving mention: {e}")
+                else:
+                    logger.debug(f"No match for keyword '{keyword.keyword}' in comment")
         
         except Exception as e:
             logger.error(f"Error checking comment for keywords: {e}")

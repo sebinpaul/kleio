@@ -211,7 +211,7 @@ python manage.py check
 ```bash
 # Check if keywords are active
 python manage.py shell
->>> from tracker.models import Keyword
+>>> from core.models import Keyword
 >>> Keyword.objects.filter(is_active=True).count()
 
 # Check service status
@@ -225,7 +225,7 @@ curl http://localhost:8000/api/auto-monitor/status/
 
 # Check recent mentions
 python manage.py shell
->>> from tracker.models import Mention
+>>> from core.models import Mention
 >>> Mention.objects.all().order_by('-discovered_at')[:5]
 ```
 

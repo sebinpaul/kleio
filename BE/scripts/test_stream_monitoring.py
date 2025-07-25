@@ -12,8 +12,8 @@ import threading
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'kleio_backend.settings')
 django.setup()
 
-from tracker.services.realtime_monitor import realtime_stream_monitor
-from tracker.models import Keyword
+from platforms.reddit.services.realtime_monitor import realtime_stream_monitor
+from core.models import Keyword
 
 def test_stream_monitoring():
     """Test real-time stream monitoring"""
@@ -95,7 +95,7 @@ def test_stream_monitoring():
     print("\n📊 Test Results:")
     print("-" * 30)
     
-    from tracker.models import Mention
+    from core.models import Mention
     recent_mentions = Mention.objects.filter(
         keyword_id__in=[str(kw.id) for kw in keywords]
     ).order_by('-discovered_at')[:10]
@@ -118,7 +118,7 @@ def test_single_subreddit_stream():
     print("\n🔍 Testing Single Subreddit Stream...")
     print("=" * 40)
     
-    from tracker.services.reddit_service import RedditService
+    from core.services.reddit_service import RedditService
     
     reddit_service = RedditService()
     reddit = reddit_service.get_reddit_instance()

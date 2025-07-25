@@ -198,7 +198,7 @@ python manage.py start_stream_monitoring --keywords python
 
 # In another terminal, check for mentions
 python manage.py shell
->>> from tracker.models import Mention
+>>> from core.models import Mention
 >>> Mention.objects.all().order_by('-discovered_at')[:5]
 ```
 
@@ -206,7 +206,7 @@ python manage.py shell
 
 ### Check Active Monitoring
 ```python
-from tracker.services.realtime_monitor import realtime_stream_monitor
+from platforms.reddit.services.realtime_monitor import realtime_stream_monitor
 
 # Check if monitoring is active
 is_active = len(realtime_stream_monitor.monitoring_threads) > 0
@@ -219,7 +219,7 @@ print(f"Monitored subreddits: {subreddits}")
 
 ### View Recent Mentions
 ```python
-from tracker.models import Mention
+from core.models import Mention
 
 # Get recent mentions
 recent_mentions = Mention.objects.all().order_by('-discovered_at')[:10]
@@ -319,7 +319,7 @@ logger.error(f"Error in submissions stream: {e}")
 ```bash
 # Check if keywords are active
 python manage.py shell
->>> from tracker.models import Keyword
+>>> from core.models import Keyword
 >>> Keyword.objects.filter(is_active=True).count()
 
 # Check if monitoring is running
@@ -350,7 +350,7 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 
 # Test stream manually
-from tracker.services.realtime_monitor import realtime_stream_monitor
+from platforms.reddit.services.realtime_monitor import realtime_stream_monitor
 realtime_stream_monitor.start_stream_monitoring()
 ```
 

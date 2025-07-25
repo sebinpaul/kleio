@@ -12,8 +12,8 @@ import requests
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'kleio_backend.settings')
 django.setup()
 
-from tracker.services.auto_monitor_service import auto_monitor_service
-from tracker.models import Keyword
+from core.services.auto_monitor_service import auto_monitor_service
+from core.models import Keyword
 
 def test_auto_monitoring():
     """Test automatic monitoring service"""

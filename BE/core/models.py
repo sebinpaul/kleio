@@ -88,13 +88,22 @@ class Mention(Document):
     email_sent = BooleanField(default=False, help_text="Whether email notification was sent")
     email_sent_at = DateTimeField(help_text="When email notification was sent")
     
+    # HackerNews-specific fields
+    hn_story_id = StringField(help_text="HackerNews story ID")
+    hn_comment_id = StringField(help_text="HackerNews comment ID")
+    hn_points = IntField(help_text="HackerNews story points")
+    hn_comments_count = IntField(help_text="Number of comments on HackerNews story")
+    
     meta = {
         'collection': 'mentions',
         'indexes': [
             ('user_id', 'platform', 'discovered_at'),
             ('keyword_id', 'discovered_at'),
             ('source_url',),
-            ('discovered_at',)
+            ('discovered_at',),
+            ('hn_story_id',),
+            ('hn_comment_id',),
+            ('platform', 'hn_story_id'),
         ]
     }
     

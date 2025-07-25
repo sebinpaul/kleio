@@ -3,9 +3,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class TrackerConfig(AppConfig):
+class CoreConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'tracker'
+    name = 'core'
     
     def ready(self):
         """Called when Django starts"""

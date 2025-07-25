@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
-from tracker.services.realtime_monitor import realtime_stream_monitor
-from tracker.models import Keyword
+from platforms.reddit.services.realtime_monitor import realtime_stream_monitor
+from core.models import Keyword
 import logging
 import time
 
