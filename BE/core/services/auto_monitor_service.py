@@ -30,6 +30,9 @@ class AutoMonitorService:
         self.is_running = True
         logger.info("🚀 Starting automatic monitoring service...")
         
+        # Initialize HackerNews monitoring
+        self.hn_service.start_monitoring()
+        
         # Start the monitoring thread
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.monitor_thread.start()
@@ -79,7 +82,7 @@ class AutoMonitorService:
             # Get all active keywords
             active_keywords = Keyword.objects.filter(is_active=True)
             current_keyword_ids = {str(kw.id) for kw in active_keywords}
-            
+            print('active_keywords ---------- ', active_keywords)
             # Check if we need to update monitoring
             if current_keyword_ids != self.monitored_keywords:
                 logger.info(f"🔄 Keyword changes detected. Updating monitoring...")
