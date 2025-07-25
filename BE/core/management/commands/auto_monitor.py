@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from tracker.services.auto_monitor_service import auto_monitor_service
+from core.services.auto_monitor_service import auto_monitor_service
 import time
 import logging
 

@@ -3,10 +3,10 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 import logging
 
-from tracker.models import Keyword, Mention
-from tracker.services.reddit_service import RedditService
-from tracker.services.hackernews_service import HackerNewsService
-from tracker.services.instant_notification_service import InstantNotificationService
+from core.models import Keyword, Mention
+from core.services.reddit_service import RedditService
+from core.services.hackernews_service import HackerNewsService
+from core.enums import Platform
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--platform',
             type=str,
-            choices=['reddit', 'hackernews', 'both'],
+            choices=[Platform.REDDIT.value, Platform.HACKERNEWS.value, 'both'],
             default='both',
             help='Platform to monitor (default: both)',
         )
@@ -41,7 +41,7 @@ class Command(BaseCommand):
             if platform == 'both':
                 keywords = Keyword.objects.filter(is_active=True)
             else:
-                keywords = Keyword.objects.filter(is_active=True, platform__in=[platform, 'both'])
+                keywords = Keyword.objects.filter(is_active=True, platform__in=[platform, Platform.ALL.value])
             
             if not keywords:
                 self.stdout.write(
@@ -54,8 +54,8 @@ class Command(BaseCommand):
             all_mentions = []
             
             # Monitor Reddit keywords
-            if platform in ['reddit', 'both']:
-                reddit_keywords = [k for k in keywords if k.platform in ['reddit', 'both']]
+            if platform in [Platform.REDDIT.value, 'both']:
+                reddit_keywords = [k for k in keywords if k.platform in [Platform.REDDIT.value, Platform.ALL.value]]
                 if reddit_keywords:
                     self.stdout.write(f'Monitoring {len(reddit_keywords)} Reddit keywords...')
                     reddit_service = RedditService()
@@ -64,8 +64,8 @@ class Command(BaseCommand):
                     self.stdout.write(f'Found {len(reddit_mentions)} Reddit mentions')
             
             # Monitor HackerNews keywords
-            if platform in ['hackernews', 'both']:
-                hn_keywords = [k for k in keywords if k.platform in ['hackernews', 'both']]
+            if platform in [Platform.HACKERNEWS.value, 'both']:
+                hn_keywords = [k for k in keywords if k.platform in [Platform.HACKERNEWS.value, Platform.ALL.value]]
                 if hn_keywords:
                     self.stdout.write(f'Monitoring {len(hn_keywords)} HackerNews keywords...')
                     hn_service = HackerNewsService()
@@ -106,43 +106,28 @@ class Command(BaseCommand):
                         self.style.ERROR(f'  Error saving mention: {str(e)}')
                     )
             
-            # Send instant notifications
-            notification_service = InstantNotificationService()
+            # Send email notifications
+            from core.services.email_service import email_notification_service
             notifications_sent = 0
             
             for mention in saved_mentions:
                 try:
-                    user = User.objects.get(id=mention.user_id)
-                    success = notification_service.send_instant_notification(
-                        user_id=mention.user_id,
-                        user_email=user.email,
-                        keyword=mention.keyword_id,
-                        source_url=mention.source_url,
-                        platform=mention.platform,
-                        content=mention.content,
-                        title=mention.title,
-                        author=mention.author
-                    )
+                    success = email_notification_service.send_mention_notification(mention)
                     
                     if success:
                         notifications_sent += 1
                         self.stdout.write(
-                            f'  Sent notification for mention: {mention.keyword_id}'
+                            f'  Sent email notification for mention: {mention.keyword_id}'
                         )
                     else:
                         self.stdout.write(
-                            self.style.ERROR(f'  Failed to send notification for mention: {mention.keyword_id}')
+                            self.style.ERROR(f'  Failed to send email notification for mention: {mention.keyword_id}')
                         )
                         
-                except User.DoesNotExist:
-                    logger.warning(f"User {mention.user_id} not found for notification")
-                    self.stdout.write(
-                        self.style.WARNING(f'  User {mention.user_id} not found for notification')
-                    )
                 except Exception as e:
-                    logger.error(f"Error sending notification for mention {mention.id}: {str(e)}")
+                    logger.error(f"Error sending email notification for mention {mention.id}: {str(e)}")
                     self.stdout.write(
-                        self.style.ERROR(f'  Error sending notification: {str(e)}')
+                        self.style.ERROR(f'  Error sending email notification: {str(e)}')
                     )
             
             self.stdout.write(

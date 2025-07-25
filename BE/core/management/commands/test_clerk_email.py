@@ -1,8 +1,8 @@
 from django.core.management.base import BaseCommand
-from tracker.services.clerk_service import clerk_user_service
-from tracker.services.email_service import email_notification_service
-from tracker.models import Mention, Keyword
-from tracker.enums import Platform, MentionContentType
+from core.services.clerk_service import clerk_user_service
+from core.services.email_service import email_notification_service
+from core.models import Mention, Keyword
+from core.enums import Platform, MentionContentType
 from datetime import datetime
 import logging
 

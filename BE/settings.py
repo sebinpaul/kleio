@@ -46,7 +46,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'corsheaders',
-    'tracker',
+    'core',
 ]
 
 MIDDLEWARE = [
@@ -60,7 +60,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'kleio_backend.urls'
+ROOT_URLCONF = 'urls'
 
 TEMPLATES = [
     {
@@ -78,7 +78,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'kleio_backend.wsgi.application'
+WSGI_APPLICATION = 'wsgi.application'
 
 
 # MongoDB Configuration

@@ -3,8 +3,10 @@ import logging
 import threading
 from datetime import datetime, timedelta
 from django.utils import timezone
-from .realtime_monitor import realtime_stream_monitor
-from ..models import Keyword
+from platforms.reddit.services.realtime_monitor import realtime_stream_monitor
+from platforms.hackernews.services.hackernews_service import HackerNewsService
+from ..models import Keyword, Mention
+from ..enums import Platform
 
 logger = logging.getLogger(__name__)
 
@@ -14,9 +16,10 @@ class AutoMonitorService:
     def __init__(self):
         self.is_running = False
         self.monitor_thread = None
-        self.check_interval = 30  # Check for new keywords every 30 seconds
+        self.check_interval = 300  # Check for new keywords every 5 minutes (optimized)
         self.last_keyword_check = None
         self.monitored_keywords = set()  # Track which keywords are being monitored
+        self.hn_service = HackerNewsService()
         
     def start_auto_monitoring(self):
         """Start automatic monitoring service"""
@@ -60,6 +63,9 @@ class AutoMonitorService:
                 # Check for active keywords
                 self._check_and_update_keywords()
                 
+                # Perform periodic monitoring for all platforms
+                self._perform_periodic_monitoring()
+                
                 # Wait before next check
                 time.sleep(self.check_interval)
                 
@@ -97,15 +103,57 @@ class AutoMonitorService:
         except Exception as e:
             logger.error(f"Error checking keywords: {e}")
     
+    def _perform_periodic_monitoring(self):
+        """Perform periodic monitoring for platforms that don't support real-time streaming"""
+        try:
+            # Get keywords for platforms that need periodic monitoring
+            hn_keywords = Keyword.objects.filter(
+                is_active=True,
+                platform__in=[Platform.HACKERNEWS.value, Platform.ALL.value]
+            )
+            
+            if hn_keywords:
+                logger.info(f"🔍 Performing periodic HackerNews monitoring for {len(hn_keywords)} keywords")
+                
+                # Monitor HackerNews keywords
+                hn_mentions = self.hn_service.monitor_keywords(hn_keywords)
+                
+                if hn_mentions:
+                    logger.info(f"🎯 Found {len(hn_mentions)} new HackerNews mentions")
+                    
+                    # Save mentions and send notifications
+                    for mention in hn_mentions:
+                        try:
+                            mention.save()
+                            logger.info(f"💾 Saved HN mention: {mention.keyword_id} - {mention.title[:50]}...")
+                            
+                            # Send email notification
+                            self._send_email_notification(mention)
+                            
+                        except Exception as e:
+                            logger.error(f"Error saving HN mention: {e}")
+                else:
+                    logger.info("ℹ️  No new HackerNews mentions found")
+            
+        except Exception as e:
+            logger.error(f"Error in periodic monitoring: {e}")
+    
+    def _send_email_notification(self, mention: Mention):
+        """Send email notification for a mention"""
+        try:
+            from .email_service import email_notification_service
+            email_notification_service.send_mention_notification(mention)
+            logger.info(f"📧 Email notification sent for mention: {mention.keyword_id}")
+        except Exception as e:
+            logger.error(f"Error sending email notification: {e}")
+    
     def get_status(self):
         """Get current monitoring status"""
         return {
             'is_running': self.is_running,
             'monitored_keywords_count': len(self.monitored_keywords),
-            'last_check': self.last_keyword_check.isoformat() if self.last_keyword_check else None,
-            'check_interval_seconds': self.check_interval,
-            'stream_monitoring_active': len(realtime_stream_monitor.monitoring_threads) > 0,
-            'active_streams': list(realtime_stream_monitor.monitoring_threads.keys())
+            'last_check': self.last_keyword_check,
+            'check_interval': self.check_interval
         }
 
 # Global instance

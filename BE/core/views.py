@@ -5,7 +5,6 @@ from rest_framework import status
 from django.http import JsonResponse
 from django.utils import timezone
 from .models import Keyword
-from .services.realtime_monitor import realtime_stream_monitor
 from .services.auto_monitor_service import auto_monitor_service
 from .enums import Platform
 import json

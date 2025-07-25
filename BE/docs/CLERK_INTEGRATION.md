@@ -57,7 +57,7 @@ python manage.py test_email_notifications --user-id "user_2abc123def456" --keywo
 ### Test Clerk Service Directly
 
 ```python
-from tracker.services.clerk_service import clerk_user_service
+from core.services.clerk_service import clerk_user_service
 
 # Get user email
 email = clerk_user_service.get_user_email("user_2abc123def456")

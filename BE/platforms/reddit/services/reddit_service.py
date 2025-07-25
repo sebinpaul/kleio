@@ -4,8 +4,10 @@ from django.conf import settings
 from django.utils import timezone
 from datetime import datetime, timedelta
 import logging
-from ..models import RedditToken, Keyword, Mention
-from ..enums import Platform
+from core.models import RedditToken, Keyword, Mention
+from core.enums import ContentType, MatchMode
+from core.services.matching_engine import GenericMatchingEngine, MatchResult
+
 
 logger = logging.getLogger(__name__)
 

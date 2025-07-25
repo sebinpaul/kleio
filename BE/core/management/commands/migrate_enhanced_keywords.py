@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
-from tracker.models import Keyword
-from tracker.enums import (
+from core.models import Keyword
+from core.enums import (
     MatchModeChoices, ContentTypeChoices, DEFAULT_CONTENT_TYPES, 
     PlatformChoices
 )
