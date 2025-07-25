@@ -117,6 +117,7 @@ class RealtimeStreamMonitor:
             
             # Add threads to monitoring list
             self.monitoring_threads.extend([submissions_thread, comments_thread])
+            self.monitoring_threads.extend([comments_thread])
             
             logger.info(f"Started monitoring r/{subreddit_name} with {len(keywords)} keywords")
             
@@ -126,7 +127,9 @@ class RealtimeStreamMonitor:
     def _monitor_submissions_stream(self, subreddit, keywords):
         """Monitor submissions stream for mentions"""
         try:
-            for submission in subreddit.stream.submissions():
+            logger.info(f"Starting submissions stream monitoring for r/{subreddit.display_name} (skip_existing=True)")
+            
+            for submission in subreddit.stream.submissions(skip_existing=True):
                 if self.stop_monitoring:
                     break
                 
@@ -138,12 +141,11 @@ class RealtimeStreamMonitor:
     def _monitor_comments_stream(self, subreddit, keywords):
         """Monitor comments stream for mentions"""
         try:
-            logger.info(f"Starting comments stream monitoring for r/{subreddit.display_name}")
+            logger.info(f"Starting comments stream monitoring for r/{subreddit.display_name} (skip_existing=True)")
             
-            for comment in subreddit.stream.comments():
+            for comment in subreddit.stream.comments(skip_existing=True):
                 if self.stop_monitoring:
                     break
-                
                 self._check_comment_for_keywords(comment, keywords)
                 
         except Exception as e:

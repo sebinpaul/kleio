@@ -1,7 +1,7 @@
 import logging
 import requests
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import List, Dict, Optional, Any
 from django.utils import timezone
 from core.models import Keyword, Mention
@@ -31,6 +31,13 @@ class HackerNewsService:
         self.session.headers.update({
             'User-Agent': 'KleioBot/1.0 (HackerNews Monitoring)'
         })
+        # Track monitoring start time for real-time updates
+        self.monitoring_start_time = None
+    
+    def start_monitoring(self):
+        """Start real-time monitoring by setting the start time"""
+        self.monitoring_start_time = int(timezone.now().replace(tzinfo=dt_timezone.utc).timestamp())
+        logger.info(f"Started HackerNews monitoring at timestamp: {self.monitoring_start_time}")
     
     def monitor_keywords(self, keywords: List[Keyword]) -> List[Mention]:
         """
@@ -43,6 +50,10 @@ class HackerNewsService:
             List of new Mention objects found
         """
         mentions = []
+        
+        # Initialize monitoring start time if not set
+        if self.monitoring_start_time is None:
+            self.start_monitoring()
         
         for keyword in keywords:
             if keyword.platform in [Platform.HACKERNEWS.value, Platform.ALL.value]:
@@ -59,6 +70,11 @@ class HackerNewsService:
                     continue
         
         return mentions
+    
+    def reset_monitoring(self):
+        """Reset monitoring start time (useful for testing)"""
+        self.monitoring_start_time = None
+        logger.info("Reset HackerNews monitoring - will start fresh on next run")
     
     def _extract_story_ids_from_filters(self, filters: List[str]) -> List[str]:
         story_ids = []
@@ -80,17 +96,22 @@ class HackerNewsService:
         try:
             url_filters = self._extract_story_ids_from_filters(keyword.platform_specific_filters)
             
-            # Search in stories and comments
+            # Use monitoring start time for real-time updates
+            # This ensures we only get content created after monitoring started
+            start_time = self.monitoring_start_time
+            logger.info(f"Getting HN content created after start time: {start_time}")
+            
             search_params = {
                 'query': keyword.keyword,
                 'tags': '(story,comment)',
                 'hitsPerPage': 50,
-                'numericFilters': f'created_at_i>{int((timezone.now() - timedelta(days=1)).timestamp())}'
+                'numericFilters': f'created_at_i>{start_time}'
             }
             
             response = self._make_api_request(HNConstants.ALGOLIA_SEARCH_BY_DATE_URL, params=search_params)
             
             if response and 'hits' in response:
+                logger.info(f"Found {len(response['hits'])} total items, checking for keyword matches...")
                 for item in response['hits']:
                     if url_filters and item.get('objectID') not in url_filters:
                         continue
@@ -256,10 +277,14 @@ class HackerNewsService:
     def get_recent_stories(self, limit: int = 100) -> List[Dict[str, Any]]:
         """Get recent HackerNews stories for testing"""
         try:
+            # Use UTC time for HackerNews API (which expects UTC timestamps)
+            utc_now = timezone.now().replace(tzinfo=dt_timezone.utc)
+            one_day_ago = utc_now - timedelta(hours=24)
+            
             search_params = {
                 'tags': 'story',
                 'hitsPerPage': limit,
-                'numericFilters': f'created_at_i>{int((timezone.now() - timedelta(hours=24)).timestamp())}'
+                'numericFilters': f'created_at_i>{int(one_day_ago.timestamp())}'
             }
             
             response = self._make_api_request(HNConstants.ALGOLIA_SEARCH_URL, params=search_params)
