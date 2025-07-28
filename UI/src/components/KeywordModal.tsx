@@ -161,49 +161,7 @@ export default function KeywordModal({
     return false; // Allow navigation for other steps
   };
 
-  const renderStepIndicator = () => {
-    const steps = [
-      { number: 1, title: "Basic Info" },
-      { number: 2, title: "Advanced" },
-      { number: 3, title: "Review" },
-    ];
-    return (
-      <div className="flex items-center justify-center mb-8">
-        <div className="flex items-center space-x-4">
-          {steps.map((step, index) => (
-            <React.Fragment key={step.number}>
-              <div className="flex flex-col items-center">
-                <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold ${
-                    currentStep >= step.number
-                      ? step.number === 1 && !keyword.trim()
-                        ? "bg-yellow-500 text-white" // Warning color for incomplete step 1
-                        : "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  {step.number}
-                </div>
-                <div className="text-xs mt-2 text-center">
-                  <div className="font-medium">{step.title}</div>
-                  {step.number === 1 && currentStep === 1 && !keyword.trim() && (
-                    <div className="text-yellow-600 text-xs">Required</div>
-                  )}
-                </div>
-              </div>
-              {index < steps.length - 1 && (
-                <div
-                  className={`w-8 h-0.5 ${
-                    currentStep > step.number ? "bg-primary" : "bg-muted"
-                  }`}
-                />
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-      </div>
-    );
-  };
+
 
   const renderNavigation = () => (
     <div className="flex justify-between pt-6">
@@ -244,21 +202,25 @@ export default function KeywordModal({
   const renderStepContent = () => {
     if (currentStep === 1) {
       return (
-        <div className="space-y-6">
+        <div className="space-y-6 bg-slate-50 p-6 rounded-xl border border-slate-200">
           <div className="space-y-3">
-            <Label htmlFor="keyword" className="text-base font-medium">Keyword *</Label>
+            <Label htmlFor="keyword" className="text-lg font-semibold text-slate-900">Keyword *</Label>
             <Input
               id="keyword"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder="Enter keyword to monitor"
+              placeholder="Enter keyword to monitor (e.g., 'your brand name')"
               required
               disabled={isLoading}
-              className={`text-base h-12 ${currentStep === 1 && !keyword.trim() ? 'border-red-500 focus:border-red-500' : ''}`}
+              className={`text-lg h-14 bg-white border-2 font-medium ${
+                currentStep === 1 && !keyword.trim() 
+                  ? 'border-red-400 focus:border-red-500 focus:ring-red-200' 
+                  : 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-200'
+              }`}
             />
             {currentStep === 1 && !keyword.trim() && (
-              <p className="text-sm text-red-500">
-                Keyword is required to continue
+              <p className="text-sm text-red-600 font-medium">
+                ⚠️ Keyword is required to continue
               </p>
             )}
           </div>
@@ -438,17 +400,59 @@ export default function KeywordModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="text-xl font-semibold">
-            {editKeyword ? "Edit" : "Add New"} {platform ? PlatformLabels[platform as Platform] || platform.charAt(0).toUpperCase() + platform.slice(1) : ""} Keyword
+      <DialogContent className="sm:max-w-2xl bg-white shadow-xl border border-slate-200">
+        {/* Simple, Clean Header */}
+        <DialogHeader className="border-b border-slate-200 pb-4 mb-6">
+          <DialogTitle className="text-2xl font-semibold text-slate-900">
+            {editKeyword ? "Edit Keyword" : "Add New Keyword"}
           </DialogTitle>
+          <p className="text-slate-600 mt-1">
+            {editKeyword 
+              ? `Update monitoring settings for "${editKeyword.keyword}"`
+              : `Set up keyword monitoring for ${platform ? PlatformLabels[platform as Platform] || platform.charAt(0).toUpperCase() + platform.slice(1) : "your platform"}`
+            }
+          </p>
         </DialogHeader>
-        {renderStepIndicator()}
-        {/* Keep the existing form for now, navigation at the bottom */}
+
+        {/* Step Indicator - More Visible */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between max-w-md mx-auto">
+            {[1, 2, 3].map((step, index) => (
+              <React.Fragment key={step}>
+                <div className="flex flex-col items-center">
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold border-2 transition-all ${
+                      currentStep >= step
+                        ? "bg-indigo-600 border-indigo-600 text-white"
+                        : "bg-white border-slate-300 text-slate-400"
+                    }`}
+                  >
+                    {currentStep > step ? (
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    ) : (
+                      step
+                    )}
+                  </div>
+                  <div className="text-xs mt-2 font-medium text-slate-600">
+                    {step === 1 ? "Basic Info" : step === 2 ? "Settings" : "Review"}
+                  </div>
+                </div>
+                {index < 2 && (
+                  <div className={`flex-1 h-0.5 mx-3 ${
+                    currentStep > step ? "bg-indigo-600" : "bg-slate-200"
+                  }`} />
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+        
+        {/* Form Content */}
         <form onSubmit={handleSubmit} className="space-y-6">
           {error && (
-            <div className="text-sm text-destructive bg-destructive/10 p-4 rounded-lg border border-destructive/20">
+            <div className="text-sm text-red-700 bg-red-50 p-4 rounded-lg border border-red-200">
               {error}
             </div>
           )}
