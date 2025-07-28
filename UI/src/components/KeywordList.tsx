@@ -105,7 +105,6 @@ const KeywordList = forwardRef<KeywordListRef, KeywordListProps>(({ platform, on
   }));
 
   useEffect(() => {
-    console.log("platform", platform);
     loadKeywords();
   }, [platform]);
 

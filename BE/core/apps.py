@@ -12,7 +12,7 @@ class CoreConfig(AppConfig):
         import os
         
         # Only start auto-monitoring if not running management commands
-        if os.environ.get('RUN_MAIN') != 'true' and not os.environ.get('DJANGO_SETTINGS_MODULE'):
+        if os.environ.get('RUN_MAIN') != 'true':
             return
             
         try:

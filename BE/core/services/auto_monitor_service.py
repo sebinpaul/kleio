@@ -82,6 +82,9 @@ class AutoMonitorService:
                 
             except Exception as e:
                 logger.error(f"Error in monitoring loop: {e}")
+                logger.error(f"Error type: {type(e).__name__}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 time.sleep(60)  # Wait longer on error
     
     def _check_and_update_keywords(self):
@@ -133,6 +136,9 @@ class AutoMonitorService:
             
         except Exception as e:
             logger.error(f"Error checking keywords: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
     
     def _send_email_notification(self, mention: Mention):
         """Send email notification for a mention"""

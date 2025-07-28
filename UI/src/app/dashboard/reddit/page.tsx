@@ -13,7 +13,6 @@ export default function RedditDashboard() {
   };
 
   if (!platform) return null;
-  console.log("platform", platform);
   return (
     <PlatformDashboard
       platform={platform}

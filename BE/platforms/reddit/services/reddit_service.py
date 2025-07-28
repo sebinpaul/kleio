@@ -19,8 +19,6 @@ class RedditService:
         self.client_id = settings.REDDIT_CLIENT_ID
         self.client_secret = settings.REDDIT_CLIENT_SECRET
         self.user_agent = settings.REDDIT_USER_AGENT
-        self.base_url = settings.REDDIT_BASE_URL
-        self.auth_url = settings.REDDIT_AUTH_URL
         
     def get_reddit_instance(self, access_token=None):
         """Get a PRAW Reddit instance"""
