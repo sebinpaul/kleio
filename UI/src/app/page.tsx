@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
 
-const authEnabled = true;
+const authEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED !== "false";
 
 export default function Home() {
   const { isSignedIn, user, isLoaded } = useUser();

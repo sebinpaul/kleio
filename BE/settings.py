@@ -85,28 +85,38 @@ WSGI_APPLICATION = 'wsgi.application'
 MONGODB_URI = os.getenv('MONGODB_URI')
 MONGODB_DATABASE = os.getenv('MONGODB_DATABASE')
 
+# MongoDB connection function to prevent duplicate connections
+def connect_mongodb():
+    if not hasattr(connect_mongodb, '_connected'):
+        if MONGODB_URI:
+            try:
+                db_name = MONGODB_DATABASE
+                
+                mongoengine.connect(
+                    db=db_name,
+                    host=MONGODB_URI,
+                    alias='default',
+                    serverSelectionTimeoutMS=60000,
+                    connectTimeoutMS=60000,
+                    socketTimeoutMS=60000,
+                    maxPoolSize=5,
+                    minPoolSize=1,
+                    maxIdleTimeMS=30000,
+                    retryWrites=True,
+                    retryReads=True,
+                    heartbeatFrequencyMS=10000
+                )
+                print(f"Connected to MongoDB successfully (database: {db_name})")
+                connect_mongodb._connected = True
+            except Exception as e:
+                print(f"MongoDB connection error: {e}")
+                print("Please check your connection string and network connectivity")
+        else:
+            print("MONGODB_URI not set - using SQLite only")
+            connect_mongodb._connected = True
 
-# Connect to MongoDB using MongoEngine with Atlas configuration
-if MONGODB_URI:
-    try:
-        mongoengine.connect(
-            db=MONGODB_DATABASE,
-            host=MONGODB_URI,
-            alias='default',
-            serverSelectionTimeoutMS=60000,
-            connectTimeoutMS=60000,
-            socketTimeoutMS=60000,
-            maxPoolSize=5,
-            minPoolSize=1,
-            maxIdleTimeMS=30000,
-            retryWrites=True,
-            retryReads=True,
-            heartbeatFrequencyMS=10000
-        )
-        print("Connected to MongoDB Atlas successfully")
-    except Exception as e:
-        print(f"MongoDB Atlas connection error: {e}")
-        print("Please check your connection string and network connectivity")
+# Initialize MongoDB connection
+connect_mongodb()
 
 # Keep SQLite for Django's built-in tables (admin, auth, etc.)
 DATABASES = {
@@ -161,17 +171,7 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# CORS Configuration (copied from Java application.properties)
-# CORS_ALLOWED_ORIGINS = [
-#     "http://localhost:3000",
-#     "http://127.0.0.1:3000",
-#     "http://localhost:3001",
-#     "http://127.0.0.1:3001",
-#     "http://localhost:8000",
-#     "http://127.0.0.1:8000",
-# ]
-
-# For development only - uncomment if you need to allow all origins temporarily
+# CORS Configuration
 CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOW_CREDENTIALS = True
@@ -214,8 +214,6 @@ REST_FRAMEWORK = {
 REDDIT_CLIENT_ID = os.getenv('REDDIT_CLIENT_ID')
 REDDIT_CLIENT_SECRET = os.getenv('REDDIT_CLIENT_SECRET')
 REDDIT_USER_AGENT = os.getenv('REDDIT_USER_AGENT', 'KleioMentionTracker/1.0')
-REDDIT_BASE_URL = os.getenv('REDDIT_BASE_URL', 'https://oauth.reddit.com')
-REDDIT_AUTH_URL = os.getenv('REDDIT_AUTH_URL', 'https://www.reddit.com/api/v1/access_token')
 
 # Email Configuration
 RESEND_API_KEY = os.getenv('RESEND_API_KEY')

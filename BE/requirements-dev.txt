@@ -1,0 +1,8 @@
+# Development dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Debug toolbar for development
+django-debug-toolbar>=4.2.0
+
+# Include production dependencies
+-r requirements.txt 

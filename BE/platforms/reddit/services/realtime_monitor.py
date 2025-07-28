@@ -2,7 +2,7 @@ import os
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
 from typing import List, Dict, Optional
 import praw
 from praw.models import Subreddit
@@ -23,9 +23,12 @@ class RealtimeStreamMonitor:
         self.stop_monitoring = False
         self.monitoring_threads = []
         self.matching_engine = GenericMatchingEngine()
+        self.monitoring_start_time = None
     
     def start_stream_monitoring(self, keywords=None):
         """Start monitoring Reddit streams for keyword mentions"""
+        self.monitoring_start_time = int(timezone.now().replace(tzinfo=dt_timezone.utc).timestamp())
+        logger.info(f"Started Reddit monitoring at timestamp: {self.monitoring_start_time}")
         try:
             self.stop_monitoring = False
             
@@ -251,14 +254,7 @@ class RealtimeStreamMonitor:
         except Exception as e:
             logger.error(f"Error sending email notification: {e}")
     
-    def _get_user_email(self, user_id):
-        """Get user email from user profile - DEPRECATED, use email service instead"""
-        try:
-            # This method is deprecated, use email_notification_service.get_user_email instead
-            return email_notification_service.get_user_email(user_id)
-        except Exception as e:
-            logger.error(f"Error getting user email: {e}")
-            return None
+
     
     def _create_mention_from_submission(self, keyword, submission, match_result: MatchResult, content_type: str):
         """Create a Mention object from a Reddit submission"""

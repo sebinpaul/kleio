@@ -351,18 +351,4 @@ class HackerNewsService:
             logger.error(f"Error creating mention from comment: {str(e)}")
             return None
     
-    # Legacy methods for backward compatibility
-    def monitor_keywords(self, keywords: List[Keyword]) -> List[Mention]:
-        """Legacy method - now uses real-time streaming"""
-        logger.info("Using real-time streaming instead of periodic monitoring")
-        return []
-    
-    def reset_monitoring(self):
-        """Reset monitoring start time (useful for testing)"""
-        self.monitoring_start_time = None
-        logger.info("Reset HackerNews monitoring - will start fresh on next run")
-    
-    def get_recent_stories(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get recent HackerNews stories for testing (legacy method)"""
-        logger.warning("get_recent_stories is deprecated - use real-time streaming instead")
-        return []
+
