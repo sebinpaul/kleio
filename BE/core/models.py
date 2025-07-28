@@ -66,7 +66,7 @@ class Mention(Document):
     
     # Platform details
     platform = StringField(choices=PlatformChoices.get_choices()[:4], required=True)  # Exclude 'both' for mentions
-    subreddit = StringField(max_length=100, help_text="Subreddit where mention was found")
+    subreddit = StringField(max_length=100, help_text="Subreddit where mention was found (legacy field)")
     
     # Content type tracking
     content_type = StringField(
@@ -88,11 +88,10 @@ class Mention(Document):
     email_sent = BooleanField(default=False, help_text="Whether email notification was sent")
     email_sent_at = DateTimeField(help_text="When email notification was sent")
     
-    # HackerNews-specific fields
-    hn_story_id = StringField(help_text="HackerNews story ID")
-    hn_comment_id = StringField(help_text="HackerNews comment ID")
-    hn_points = IntField(help_text="HackerNews story points")
-    hn_comments_count = IntField(help_text="Number of comments on HackerNews story")
+    # Platform-specific fields (generic)
+    platform_item_id = StringField(help_text="Platform-specific item ID (e.g., story ID, post ID)")
+    platform_score = IntField(help_text="Platform-specific score (e.g., upvotes, points)")
+    platform_comments_count = IntField(help_text="Platform-specific comments count")
     
     meta = {
         'collection': 'mentions',
@@ -101,9 +100,7 @@ class Mention(Document):
             ('keyword_id', 'discovered_at'),
             ('source_url',),
             ('discovered_at',),
-            ('hn_story_id',),
-            ('hn_comment_id',),
-            ('platform', 'hn_story_id'),
+            ('platform', 'platform_item_id'),
         ]
     }
     

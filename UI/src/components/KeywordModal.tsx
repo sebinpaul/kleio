@@ -153,6 +153,14 @@ export default function KeywordModal({
     if (currentStep > 1) setCurrentStep((prev) => (prev - 1) as WizardStep);
   };
 
+  // Check if next step should be disabled
+  const isNextDisabled = () => {
+    if (currentStep === 1) {
+      return !keyword.trim(); // Disable if keyword is empty or only whitespace
+    }
+    return false; // Allow navigation for other steps
+  };
+
   const renderStepIndicator = () => {
     const steps = [
       { number: 1, title: "Basic Info" },
@@ -168,7 +176,9 @@ export default function KeywordModal({
                 <div
                   className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold ${
                     currentStep >= step.number
-                      ? "bg-primary text-primary-foreground"
+                      ? step.number === 1 && !keyword.trim()
+                        ? "bg-yellow-500 text-white" // Warning color for incomplete step 1
+                        : "bg-primary text-primary-foreground"
                       : "bg-muted text-muted-foreground"
                   }`}
                 >
@@ -176,6 +186,9 @@ export default function KeywordModal({
                 </div>
                 <div className="text-xs mt-2 text-center">
                   <div className="font-medium">{step.title}</div>
+                  {step.number === 1 && currentStep === 1 && !keyword.trim() && (
+                    <div className="text-yellow-600 text-xs">Required</div>
+                  )}
                 </div>
               </div>
               {index < steps.length - 1 && (
@@ -208,6 +221,7 @@ export default function KeywordModal({
           <Button
             type="button"
             onClick={nextStep}
+            disabled={isNextDisabled()}
             className="h-12 text-base font-medium"
           >
             Next
@@ -240,8 +254,13 @@ export default function KeywordModal({
               placeholder="Enter keyword to monitor"
               required
               disabled={isLoading}
-              className="text-base h-12"
+              className={`text-base h-12 ${currentStep === 1 && !keyword.trim() ? 'border-red-500 focus:border-red-500' : ''}`}
             />
+            {currentStep === 1 && !keyword.trim() && (
+              <p className="text-sm text-red-500">
+                Keyword is required to continue
+              </p>
+            )}
           </div>
           <div className="space-y-3">
             <Label htmlFor="platformFilters" className="text-base font-medium">

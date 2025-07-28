@@ -1,76 +1,46 @@
-#!/usr/bin/env python
-"""
-Test script for real-time HackerNews monitoring
-Inspired by the provided monitoring approach
-"""
-import os
-import sys
-import django
-import time
-from datetime import datetime
+import asyncio
+import aiohttp
+import html
 
-# Add the BE directory to the Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+BASE_URL = "https://hacker-news.firebaseio.com/v0"
+POLL_INTERVAL = 2  # seconds
 
-# Setup Django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'settings')
-django.setup()
+async def fetch_json(session, url):
+    async with session.get(url) as response:
+        return await response.json()
 
-from core.models import Keyword
-from core.enums import Platform, ContentType
-from platforms.hackernews.services.hackernews_service import HackerNewsService
-import logging
+async def fetch_item(session, item_id):
+    return await fetch_json(session, f"{BASE_URL}/item/{item_id}.json")
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+async def stream_items():
+    async with aiohttp.ClientSession() as session:
+        prev_max_id = await fetch_json(session, f"{BASE_URL}/maxitem.json")
 
-def test_realtime_monitoring():
-    """Test real-time HackerNews monitoring"""
-    
-    # Create a test keyword
-    keyword = Keyword(
-        user_id="test_user",
-        keyword="python",
-        platform=Platform.HACKERNEWS.value,
-        content_types=[ContentType.COMMENTS.value, ContentType.TITLES.value],
-        is_active=True
-    )
-    keyword.save()
-    
-    logger.info(f"Created test keyword: {keyword.keyword}")
-    
-    # Initialize HackerNews service
-    hn_service = HackerNewsService()
-    
-    # Start monitoring
-    hn_service.start_monitoring()
-    
-    logger.info("Starting real-time HackerNews monitoring...")
-    logger.info("Press Ctrl+C to stop")
-    
-    try:
         while True:
-            # Monitor for mentions
-            mentions = hn_service.monitor_keywords([keyword])
-            
-            if mentions:
-                logger.info(f"🎯 Found {len(mentions)} new mentions!")
-                for mention in mentions:
-                    logger.info(f"   - {mention.title[:50]}...")
-                    logger.info(f"     URL: {mention.source_url}")
-            else:
-                logger.info("No new mentions found")
-            
-            # Wait before next check
-            time.sleep(30)  # Check every 30 seconds
-            
-    except KeyboardInterrupt:
-        logger.info("Stopping monitoring...")
-    
-    # Clean up
-    keyword.delete()
-    logger.info("Test completed")
+            await asyncio.sleep(POLL_INTERVAL)
+            curr_max_id = await fetch_json(session, f"{BASE_URL}/maxitem.json")
+
+            for item_id in range(prev_max_id + 1, curr_max_id + 1):
+                item = await fetch_item(session, item_id)
+
+                if not item:
+                    continue
+
+                item_type = item.get("type")
+
+                if item_type == "story":
+                    title = html.unescape(item.get("title", ""))
+                    url = item.get("url") or f"https://news.ycombinator.com/item?id={item_id}"
+                    print(f"\n📘 [STORY] by {item.get('by')} — {title}")
+                    print(f"🔗 {url}")
+
+                elif item_type == "comment":
+                    text = html.unescape(item.get("text", ""))
+                    parent = item.get("parent")
+                    print(f"\n💬 [COMMENT] by {item.get('by')} (on item {parent})")
+                    print(f"🗣️ {text}")
+
+            prev_max_id = curr_max_id
 
 if __name__ == "__main__":
-    test_realtime_monitoring() 
+    asyncio.run(stream_items())

@@ -289,6 +289,8 @@ class RealtimeStreamMonitor:
                 mention_date=datetime.fromtimestamp(submission.created_utc)
             )
             
+
+            
             return mention
             
         except Exception as e:
@@ -323,6 +325,8 @@ class RealtimeStreamMonitor:
                 match_confidence=match_result.confidence,
                 mention_date=datetime.fromtimestamp(comment.created_utc)
             )
+            
+
             
             return mention
             

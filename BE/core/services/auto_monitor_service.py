@@ -5,6 +5,9 @@ from datetime import datetime, timedelta
 from django.utils import timezone
 from platforms.reddit.services.realtime_monitor import realtime_stream_monitor
 from platforms.hackernews.services.hackernews_service import HackerNewsService
+# Temporarily using mock Twitter service due to snscrape compatibility issues
+# from platforms.twitter.services.twitter_service import twitter_service
+from platforms.twitter.services.twitter_service_mock import mock_twitter_service as twitter_service
 from ..models import Keyword, Mention
 from ..enums import Platform
 
@@ -16,10 +19,12 @@ class AutoMonitorService:
     def __init__(self):
         self.is_running = False
         self.monitor_thread = None
-        self.check_interval = 300  # Check for new keywords every 5 minutes (optimized)
+        self.check_interval = 5  # Check for new keywords every 5 seconds (optimized for HackerNews)
         self.last_keyword_check = None
         self.monitored_keywords = set()  # Track which keywords are being monitored
         self.hn_service = HackerNewsService()
+        self.hn_keywords = set()  # Track HackerNews keywords separately
+        self.twitter_keywords = set()  # Track Twitter keywords separately
         
     def start_auto_monitoring(self):
         """Start automatic monitoring service"""
@@ -51,6 +56,12 @@ class AutoMonitorService:
         # Stop stream monitoring
         realtime_stream_monitor.stop_stream_monitoring()
         
+        # Stop HackerNews streaming
+        self.hn_service.stop_real_time_streaming()
+        
+        # Stop Twitter streaming
+        twitter_service.stop_stream_monitoring()
+        
         # Wait for thread to finish
         if self.monitor_thread and self.monitor_thread.is_alive():
             self.monitor_thread.join(timeout=10)
@@ -66,9 +77,6 @@ class AutoMonitorService:
                 # Check for active keywords
                 self._check_and_update_keywords()
                 
-                # Perform periodic monitoring for all platforms
-                self._perform_periodic_monitoring()
-                
                 # Wait before next check
                 time.sleep(self.check_interval)
                 
@@ -82,7 +90,7 @@ class AutoMonitorService:
             # Get all active keywords
             active_keywords = Keyword.objects.filter(is_active=True)
             current_keyword_ids = {str(kw.id) for kw in active_keywords}
-            print('active_keywords ---------- ', active_keywords)
+            
             # Check if we need to update monitoring
             if current_keyword_ids != self.monitored_keywords:
                 logger.info(f"🔄 Keyword changes detected. Updating monitoring...")
@@ -91,12 +99,32 @@ class AutoMonitorService:
                 
                 # Stop current monitoring
                 realtime_stream_monitor.stop_stream_monitoring()
+                self.hn_service.stop_real_time_streaming()
+                twitter_service.stop_stream_monitoring()
                 
                 # Start monitoring with updated keywords
                 if active_keywords:
-                    realtime_stream_monitor.start_stream_monitoring(active_keywords)
+                    # Separate keywords by platform
+                    reddit_keywords = [kw for kw in active_keywords if kw.platform in [Platform.REDDIT.value, Platform.ALL.value]]
+                    hn_keywords = [kw for kw in active_keywords if kw.platform in [Platform.HACKERNEWS.value, Platform.ALL.value]]
+                    twitter_keywords = [kw for kw in active_keywords if kw.platform in [Platform.TWITTER.value, Platform.ALL.value]]
+                    
+                    # Start Reddit monitoring
+                    if reddit_keywords:
+                        realtime_stream_monitor.start_stream_monitoring(reddit_keywords)
+                        logger.info(f"✅ Updated Reddit monitoring for {len(reddit_keywords)} keywords")
+                    
+                    # Start HackerNews real-time streaming
+                    if hn_keywords:
+                        self.hn_service.start_real_time_streaming(hn_keywords)
+                        logger.info(f"✅ Updated HackerNews streaming for {len(hn_keywords)} keywords")
+                    
+                    # Start Twitter monitoring
+                    if twitter_keywords:
+                        twitter_service.start_stream_monitoring(twitter_keywords)
+                        logger.info(f"✅ Updated Twitter monitoring for {len(twitter_keywords)} keywords")
+                    
                     self.monitored_keywords = current_keyword_ids
-                    logger.info(f"✅ Updated monitoring for {len(active_keywords)} keywords")
                 else:
                     logger.info("ℹ️  No active keywords to monitor")
                     self.monitored_keywords = set()
@@ -105,41 +133,6 @@ class AutoMonitorService:
             
         except Exception as e:
             logger.error(f"Error checking keywords: {e}")
-    
-    def _perform_periodic_monitoring(self):
-        """Perform periodic monitoring for platforms that don't support real-time streaming"""
-        try:
-            # Get keywords for platforms that need periodic monitoring
-            hn_keywords = Keyword.objects.filter(
-                is_active=True,
-                platform__in=[Platform.HACKERNEWS.value, Platform.ALL.value]
-            )
-            
-            if hn_keywords:
-                logger.info(f"🔍 Performing periodic HackerNews monitoring for {len(hn_keywords)} keywords")
-                
-                # Monitor HackerNews keywords
-                hn_mentions = self.hn_service.monitor_keywords(hn_keywords)
-                
-                if hn_mentions:
-                    logger.info(f"🎯 Found {len(hn_mentions)} new HackerNews mentions")
-                    
-                    # Save mentions and send notifications
-                    for mention in hn_mentions:
-                        try:
-                            mention.save()
-                            logger.info(f"💾 Saved HN mention: {mention.keyword_id} - {mention.title[:50]}...")
-                            
-                            # Send email notification
-                            self._send_email_notification(mention)
-                            
-                        except Exception as e:
-                            logger.error(f"Error saving HN mention: {e}")
-                else:
-                    logger.info("ℹ️  No new HackerNews mentions found")
-            
-        except Exception as e:
-            logger.error(f"Error in periodic monitoring: {e}")
     
     def _send_email_notification(self, mention: Mention):
         """Send email notification for a mention"""
@@ -156,7 +149,9 @@ class AutoMonitorService:
             'is_running': self.is_running,
             'monitored_keywords_count': len(self.monitored_keywords),
             'last_check': self.last_keyword_check,
-            'check_interval': self.check_interval
+            'check_interval': self.check_interval,
+            'hn_streaming': self.hn_service.is_streaming,
+            'twitter_streaming': twitter_service.is_monitoring
         }
 
 # Global instance
