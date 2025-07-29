@@ -142,9 +142,9 @@ export default function Dashboard() {
               </div>
               
               <div className="space-y-1">
-                <h3 className="text-sm font-medium text-slate-600">{metric.title}</h3>
-                <div className="text-5xl font-bold text-slate-900 mt-2">{metric.value}</div>
-                <p className="text-xs text-slate-500">{metric.description}</p>
+                <h3 className="text-base font-medium text-slate-600">{metric.title}</h3>
+                <div className="text-3xl font-bold text-slate-900 mt-2">{metric.value}</div>
+                                  <p className="text-sm text-slate-500">{metric.description}</p>
               </div>
             </div>
           ))}
@@ -173,12 +173,12 @@ export default function Dashboard() {
                   </div>
                   <div className="flex-1">
                     <h3 className="font-semibold text-slate-900">{platform.name}</h3>
-                    <p className="text-xs text-slate-600">{platform.description}</p>
+                    <p className="text-sm text-slate-600">{platform.description}</p>
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-2xl font-bold text-slate-900">{platform.count}</span>
-                  <span className="text-xs text-slate-500">active keywords</span>
+                  <span className="text-sm text-slate-500">active keywords</span>
                 </div>
               </a>
             ))}

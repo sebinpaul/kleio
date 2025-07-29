@@ -110,8 +110,8 @@ export default function Sidebar() {
               <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full animate-pulse"></div>
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900">Kleio</h1>
-              <p className="text-xs text-slate-500">Keyword Monitor</p>
+              <h1 className="text-2xl font-bold text-slate-900">Kleio</h1>
+              <p className="text-sm text-slate-500">Keyword Monitor</p>
             </div>
           </div>
         </div>
