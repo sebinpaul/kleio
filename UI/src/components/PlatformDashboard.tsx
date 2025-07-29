@@ -79,8 +79,8 @@ export default function PlatformDashboard({
               <div key={index} className="metric-card p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-600">{stat.title}</p>
-                    <div className="text-5xl font-semibold text-slate-900 mt-2">{stat.value}</div>
+                    <p className="text-base font-medium text-slate-600">{stat.title}</p>
+                    <div className="text-3xl font-bold text-slate-900 mt-2">{stat.value}</div>
                   </div>
                   <div className={`p-3 ${bgColors[index % bgColors.length]} rounded-xl`}>
                     {stat.icon || icons[index % icons.length]}

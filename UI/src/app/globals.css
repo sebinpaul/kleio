@@ -95,8 +95,8 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-feature-settings: "rlig" 1, "calt" 1;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 15px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -109,32 +109,37 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 h1 {
-  @apply text-3xl;
+  @apply text-2xl;
   font-weight: 700;
 }
 
 h2 {
-  @apply text-2xl;
+  @apply text-xl;
+  font-weight: 600;
 }
 
 h3 {
-  @apply text-xl;
-}
-
-h4 {
   @apply text-lg;
 }
 
-h5 {
+h4 {
   @apply text-base;
 }
 
-h6 {
+h5 {
   @apply text-sm;
+  font-weight: 600;
+}
+
+h6 {
+  @apply text-xs;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 p {
-  @apply text-sm leading-relaxed;
+  @apply text-base leading-relaxed;
   color: #475569;
 }
 
