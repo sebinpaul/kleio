@@ -178,3 +178,30 @@ class UserProfile(Document):
     def save(self, *args, **kwargs):
         self.updated_at = timezone.now()
         return super().save(*args, **kwargs)
+
+
+class Proxy(Document):
+    """Model for storing HTTP/SOCKS proxy endpoints"""
+    
+    url = StringField(required=True, help_text="Proxy URL, e.g. http://user:pass@host:port or socks5://host:1080")
+    is_active = BooleanField(default=True)
+    last_failed_at = DateTimeField()
+    cooldown_until = DateTimeField()
+    created_at = DateTimeField(default=timezone.now)
+    updated_at = DateTimeField(default=timezone.now)
+    
+    meta = {
+        'collection': 'proxies',
+        'indexes': [
+            ('is_active',),
+            ('cooldown_until',),
+            ('created_at',)
+        ]
+    }
+    
+    def __str__(self):
+        return f"Proxy {self.url} (active={self.is_active})"
+    
+    def save(self, *args, **kwargs):
+        self.updated_at = timezone.now()
+        return super().save(*args, **kwargs)

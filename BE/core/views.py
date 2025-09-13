@@ -4,7 +4,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework import status
 from django.http import JsonResponse
 from django.utils import timezone
-from .models import Keyword
+from .models import Keyword, Proxy
 from .services.auto_monitor_service import auto_monitor_service
 from .enums import Platform
 import json
@@ -336,3 +336,72 @@ def get_auto_monitor_status(request):
         
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+def proxies(request):
+    """List or create proxies"""
+    try:
+        if request.method == 'POST':
+            data = request.data if isinstance(request.data, dict) else {}
+            url = data.get('url')
+            is_active = bool(data.get('is_active', True))
+            if not url:
+                return Response({'error': 'url is required'}, status=status.HTTP_400_BAD_REQUEST)
+            proxy = Proxy(url=url, is_active=is_active)
+            proxy.save()
+            return Response(_proxy_to_dict(proxy), status=status.HTTP_201_CREATED)
+        # GET
+        items = Proxy.objects.all().order_by('-created_at')
+        data = [_proxy_to_dict(p) for p in items]
+        return Response(data)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['PUT', 'DELETE'])
+@permission_classes([AllowAny])
+def proxy_detail(request, proxy_id):
+    try:
+        proxy = Proxy.objects(id=proxy_id).first()
+        if not proxy:
+            return Response({'error': 'Proxy not found'}, status=status.HTTP_404_NOT_FOUND)
+        if request.method == 'DELETE':
+            proxy.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        # PUT
+        data = request.data if isinstance(request.data, dict) else {}
+        if 'url' in data:
+            proxy.url = data['url']
+        if 'is_active' in data:
+            proxy.is_active = bool(data['is_active'])
+        proxy.save()
+        return Response(_proxy_to_dict(proxy))
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def proxies_upload_csv(request):
+    """Bulk add proxies via CSV: one proxy URL per line"""
+    try:
+        raw = request.body.decode('utf-8', errors='ignore')
+        lines = [l.strip() for l in raw.splitlines() if l.strip()]
+        created = 0
+        for line in lines:
+            if not Proxy.objects(url=line).first():
+                Proxy(url=line, is_active=True).save()
+                created += 1
+        return Response({'created': created, 'total': len(lines)})
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+def _proxy_to_dict(proxy: Proxy):
+    return {
+        'id': str(proxy.id),
+        'url': proxy.url,
+        'is_active': proxy.is_active,
+        'last_failed_at': proxy.last_failed_at.isoformat() if proxy.last_failed_at else None,
+        'cooldown_until': proxy.cooldown_until.isoformat() if proxy.cooldown_until else None,
+        'created_at': proxy.created_at.isoformat() if proxy.created_at else None,
+        'updated_at': proxy.updated_at.isoformat() if proxy.updated_at else None,
+    }
