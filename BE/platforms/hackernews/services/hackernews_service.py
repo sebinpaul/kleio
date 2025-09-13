@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import List, Dict, Optional, Any
 from django.utils import timezone
 from core.models import Keyword, Mention
+from core.services.proxy_service import ProxyManager
 from core.enums import Platform, ContentType, MentionContentType
 from core.services.matching_engine import GenericMatchingEngine, MatchResult
 from core.services.email_service import email_notification_service
@@ -35,6 +36,7 @@ class HackerNewsService:
         self.stream_thread = None
         self.stream_loop = None
         self.session = None
+        self.proxy_manager = ProxyManager()
         
     def start_monitoring(self):
         """Start real-time monitoring by setting the start time"""
@@ -87,7 +89,13 @@ class HackerNewsService:
     async def _stream_hackernews_items(self, keywords: List[Keyword]):
         """Stream all new HackerNews items and filter for keywords"""
         try:
-            self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=HNConstants.TIMEOUT))
+            from aiohttp import ClientTimeout
+            connector, proxy_arg = self.proxy_manager.for_aiohttp()
+            if connector:
+                self.session = aiohttp.ClientSession(connector=connector, timeout=ClientTimeout(total=HNConstants.TIMEOUT))
+            else:
+                self.session = aiohttp.ClientSession(timeout=ClientTimeout(total=HNConstants.TIMEOUT))
+            self._aiohttp_proxy = proxy_arg
             
             # Get current max item ID
             self.current_max_item = await self._fetch_max_item()
@@ -134,7 +142,7 @@ class HackerNewsService:
             logger.info(f"🌐 Making API request to: {HNConstants.MAX_ITEM_URL}")
             start_time = time.time()
             
-            async with self.session.get(HNConstants.MAX_ITEM_URL) as response:
+            async with self.session.get(HNConstants.MAX_ITEM_URL, proxy=self._aiohttp_proxy) as response:
                 response.raise_for_status()
                 max_item = await response.json()
                 
@@ -146,6 +154,8 @@ class HackerNewsService:
                 
         except Exception as e:
             logger.error(f"❌ Error fetching max item: {e}")
+            # cooldown proxy on error (best-effort)
+            self.proxy_manager.cooldown(self._aiohttp_proxy, minutes=2, reason="maxitem fetch error")
             return self.current_max_item or 0
     
     async def _fetch_item(self, item_id: int) -> Optional[Dict[str, Any]]:
@@ -155,7 +165,7 @@ class HackerNewsService:
             logger.info(f"🌐 Making API request to: {url}")
             start_time = time.time()
             
-            async with self.session.get(url) as response:
+            async with self.session.get(url, proxy=self._aiohttp_proxy) as response:
                 response.raise_for_status()
                 item = await response.json()
                 
@@ -173,6 +183,7 @@ class HackerNewsService:
                 
         except Exception as e:
             logger.error(f"❌ Error fetching item {item_id}: {e}")
+            self.proxy_manager.cooldown(self._aiohttp_proxy, minutes=2, reason=f"item fetch error {item_id}")
             return None
     
     async def _process_item(self, item: Dict[str, Any], keywords: List[Keyword]):
@@ -350,5 +361,7 @@ class HackerNewsService:
         except Exception as e:
             logger.error(f"Error creating mention from comment: {str(e)}")
             return None
+
+    # Proxy rotation/cooldown handled by ProxyManager
     
 

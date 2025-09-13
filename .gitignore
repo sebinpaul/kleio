@@ -68,6 +68,9 @@ BE/local_settings.py
 BE/celerybeat-schedule
 BE/celerybeat.pid
 
+#chrome_data
+BE/chrome_data/
+
 # ========= Frontend (Next.js in UI/) =========
 
 # Node modules

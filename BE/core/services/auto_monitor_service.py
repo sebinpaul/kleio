@@ -5,9 +5,7 @@ from datetime import datetime, timedelta
 from django.utils import timezone
 from platforms.reddit.services.realtime_monitor import realtime_stream_monitor
 from platforms.hackernews.services.hackernews_service import HackerNewsService
-# Temporarily using mock Twitter service due to snscrape compatibility issues
-# from platforms.twitter.services.twitter_service import twitter_service
-from platforms.twitter.services.twitter_service_mock import mock_twitter_service as twitter_service
+from platforms.twitter.services.twitter_service import twitter_service
 from ..models import Keyword, Mention
 from ..enums import Platform
 
