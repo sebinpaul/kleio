@@ -44,6 +44,22 @@ export const platforms: PlatformConfig[] = [
     ],
   },
   {
+    id: PlatformEnum.YOUTUBE,
+    name: "YouTube",
+    icon: (
+      <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M23.498 6.186a2.995 2.995 0 00-2.109-2.12C19.483 3.5 12 3.5 12 3.5s-7.483 0-9.389.566A2.995 2.995 0 00.502 6.186 31.54 31.54 0 000 12a31.54 31.54 0 00.502 5.814 2.995 2.995 0 002.109 2.12C4.517 20.5 12 20.5 12 20.5s7.483 0 9.389-.566a2.995 2.995 0 002.109-2.12A31.54 31.54 0 0024 12a31.54 31.54 0 00-.502-5.814zM9.75 15.5v-7l6 3.5-6 3.5z" />
+      </svg>
+    ),
+    description: "Monitor video titles and descriptions via Invidious",
+    color: "text-red-600",
+    defaultStats: [
+      { title: "Total Keywords", value: "0", description: "Active keywords" },
+      { title: "Videos Scanned", value: "0", description: "Recent videos" },
+      { title: "Mentions Today", value: "0", description: "New mentions" },
+    ],
+  },
+  {
     id: PlatformEnum.HACKERNEWS,
     name: "Hacker News",
     icon: (

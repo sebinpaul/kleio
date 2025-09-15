@@ -3,6 +3,7 @@ export enum Platform {
   HACKERNEWS = "hackernews",
   TWITTER = "twitter",
   LINKEDIN = "linkedin",
+  YOUTUBE = "youtube",
   BOTH = "both", // For keywords that monitor multiple platforms
 }
 
@@ -37,6 +38,7 @@ export const PlatformLabels: Record<Platform, string> = {
   [Platform.HACKERNEWS]: "Hacker News",
   [Platform.TWITTER]: "Twitter",
   [Platform.LINKEDIN]: "LinkedIn",
+  [Platform.YOUTUBE]: "YouTube",
   [Platform.BOTH]: "Both",
 };
 
@@ -45,6 +47,7 @@ export const PlatformFilterLabels: Record<Platform, string> = {
   [Platform.HACKERNEWS]: "Categories",
   [Platform.TWITTER]: "Hashtags",
   [Platform.LINKEDIN]: "Companies",
+  [Platform.YOUTUBE]: "Channels",
   [Platform.BOTH]: "Filters",
 };
 
@@ -53,6 +56,7 @@ export const PlatformPlaceholders: Record<Platform, string> = {
   [Platform.HACKERNEWS]: "tech, startup, ai (comma separated)",
   [Platform.TWITTER]: "#tech, #programming, #ai (comma separated)",
   [Platform.LINKEDIN]: "Google, Microsoft, Apple (comma separated)",
+  [Platform.YOUTUBE]: "channels or leave empty (comma separated)",
   [Platform.BOTH]: "filter1, filter2, filter3 (comma separated)",
 };
 
@@ -61,6 +65,7 @@ export const PlatformDescriptions: Record<Platform, string> = {
   [Platform.HACKERNEWS]: "Leave empty to monitor all stories",
   [Platform.TWITTER]: "Leave empty to monitor all tweets",
   [Platform.LINKEDIN]: "Leave empty to monitor all posts",
+  [Platform.YOUTUBE]: "Leave empty to monitor all videos",
   [Platform.BOTH]: "Leave empty to monitor all sources",
 };
 

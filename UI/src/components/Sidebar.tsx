@@ -76,6 +76,21 @@ const platforms = [
     ),
   },
   {
+    id: "youtube",
+    name: "YouTube",
+    href: "/dashboard/youtube",
+    description: "Monitor videos",
+    color: "from-red-500 to-rose-500",
+    icon: (
+      <div className="relative">
+        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M23.498 6.186a2.995 2.995 0 00-2.109-2.12C19.483 3.5 12 3.5 12 3.5s-7.483 0-9.389.566A2.995 2.995 0 00.502 6.186 31.54 31.54 0 000 12a31.54 31.54 0 00.502 5.814 2.995 2.995 0 002.109 2.12C4.517 20.5 12 20.5 12 20.5s7.483 0 9.389-.566a2.995 2.995 0 002.109-2.12A31.54 31.54 0 0024 12a31.54 31.54 0 00-.502-5.814zM9.75 15.5v-7l6 3.5-6 3.5z" />
+        </svg>
+        <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></div>
+      </div>
+    ),
+  },
+  {
     id: "linkedin",
     name: "LinkedIn",
     href: "/dashboard/linkedin",

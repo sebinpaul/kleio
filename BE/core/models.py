@@ -65,7 +65,10 @@ class Mention(Document):
     source_url = URLField(required=True, help_text="URL to the source post/comment")
     
     # Platform details
-    platform = StringField(choices=PlatformChoices.get_choices()[:4], required=True)  # Exclude 'both' for mentions
+    platform = StringField(
+        choices=[c for c in PlatformChoices.get_choices() if c[0] != 'all'],
+        required=True
+    )  # Exclude 'all' for mentions, include YouTube
     subreddit = StringField(max_length=100, help_text="Subreddit where mention was found (legacy field)")
     
     # Content type tracking
