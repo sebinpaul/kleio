@@ -113,13 +113,13 @@ def _build_search_url(
 ) -> str:
     base = _normalize_instance_url(instance)
     # Exact format requested:
-    # https://<instance>/search?f=tweets&q=<query>&f-replies=on&e-nativeretweets=on&since=&until=&near=
+    # https://<instance>/search?f=tweets&q=<query>&e-nativeretweets=on&since=&until=&near=
     params = [
         "f=tweets",
         f"q={quote_plus(query)}",
     ]
-    if include_replies:
-        params.append("f-replies=on")
+    # if include_replies:
+    #     params.append("f-replies=on")
     params.append("e-nativeretweets=on")
     if include_empty_range_params:
         params.extend(["since=", "until=", "near="])
