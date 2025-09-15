@@ -6,6 +6,7 @@ from django.utils import timezone
 from platforms.reddit.services.realtime_monitor import realtime_stream_monitor
 from platforms.hackernews.services.hackernews_service import HackerNewsService
 from platforms.twitter.services.twitter_service import twitter_service
+from platforms.youtube.services.youtube_service import youtube_service
 from ..models import Keyword, Mention
 from ..enums import Platform
 
@@ -59,6 +60,8 @@ class AutoMonitorService:
         
         # Stop Twitter streaming
         twitter_service.stop_stream_monitoring()
+        # Stop YouTube streaming
+        youtube_service.stop_stream_monitoring()
         
         # Wait for thread to finish
         if self.monitor_thread and self.monitor_thread.is_alive():
@@ -109,6 +112,7 @@ class AutoMonitorService:
                     reddit_keywords = [kw for kw in active_keywords if kw.platform in [Platform.REDDIT.value, Platform.ALL.value]]
                     hn_keywords = [kw for kw in active_keywords if kw.platform in [Platform.HACKERNEWS.value, Platform.ALL.value]]
                     twitter_keywords = [kw for kw in active_keywords if kw.platform in [Platform.TWITTER.value, Platform.ALL.value]]
+                    youtube_keywords = [kw for kw in active_keywords if kw.platform in [Platform.YOUTUBE.value, Platform.ALL.value]]
                     
                     # Start Reddit monitoring
                     if reddit_keywords:
@@ -124,6 +128,10 @@ class AutoMonitorService:
                     if twitter_keywords:
                         twitter_service.start_stream_monitoring(twitter_keywords)
                         logger.info(f"✅ Updated Twitter monitoring for {len(twitter_keywords)} keywords")
+                    # Start YouTube monitoring
+                    if youtube_keywords:
+                        youtube_service.start_stream_monitoring(youtube_keywords)
+                        logger.info(f"✅ Updated YouTube monitoring for {len(youtube_keywords)} keywords")
                     
                     self.monitored_keywords = current_keyword_ids
                 else:

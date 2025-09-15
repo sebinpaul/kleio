@@ -7,6 +7,7 @@ class Platform(Enum):
     HACKERNEWS = "hackernews"
     TWITTER = "twitter"
     LINKEDIN = "linkedin"
+    YOUTUBE = "youtube"
     ALL = "all"  # For keywords that monitor multiple platforms
 
 
@@ -54,6 +55,7 @@ class PlatformChoices:
     HACKERNEWS = (Platform.HACKERNEWS.value, "Hacker News")
     TWITTER = (Platform.TWITTER.value, "Twitter")
     LINKEDIN = (Platform.LINKEDIN.value, "LinkedIn")
+    YOUTUBE = (Platform.YOUTUBE.value, "YouTube")
     ALL = (Platform.ALL.value, "All")
 
     @classmethod
@@ -64,6 +66,7 @@ class PlatformChoices:
             cls.HACKERNEWS,
             cls.TWITTER,
             cls.LINKEDIN,
+            cls.YOUTUBE,
             cls.ALL,
         ]
 
@@ -175,6 +178,11 @@ PLATFORM_CONTENT_MAPPING = {
         ContentType.TITLES.value: ['text'],
         ContentType.BODY.value: ['text'],
         ContentType.COMMENTS.value: ['text'],
+    },
+    Platform.YOUTUBE.value: {
+        ContentType.TITLES.value: ['title'],
+        ContentType.BODY.value: ['description'],
+        ContentType.COMMENTS.value: ['text'],
     }
 }
 
@@ -184,5 +192,6 @@ DEFAULT_CONTENT_TYPES = {
     Platform.HACKERNEWS.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
     Platform.TWITTER.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
     Platform.LINKEDIN.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
+    Platform.YOUTUBE.value: [ContentType.TITLES.value, ContentType.BODY.value],
     Platform.ALL.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
 } 
