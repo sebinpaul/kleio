@@ -38,3 +38,4 @@ python-dateutil>=2.8.2
 
 # Logging and utilities
 colorama>=0.4.6 
+pyotp>=2.9.0

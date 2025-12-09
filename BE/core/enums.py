@@ -6,7 +6,9 @@ class Platform(Enum):
     REDDIT = "reddit"
     HACKERNEWS = "hackernews"
     TWITTER = "twitter"
+    FACEBOOK = "facebook"
     LINKEDIN = "linkedin"
+    QUORA = "quora"
     YOUTUBE = "youtube"
     ALL = "all"  # For keywords that monitor multiple platforms
 
@@ -54,7 +56,9 @@ class PlatformChoices:
     REDDIT = (Platform.REDDIT.value, "Reddit")
     HACKERNEWS = (Platform.HACKERNEWS.value, "Hacker News")
     TWITTER = (Platform.TWITTER.value, "Twitter")
+    FACEBOOK = (Platform.FACEBOOK.value, "Facebook")
     LINKEDIN = (Platform.LINKEDIN.value, "LinkedIn")
+    QUORA = (Platform.QUORA.value, "Quora")
     YOUTUBE = (Platform.YOUTUBE.value, "YouTube")
     ALL = (Platform.ALL.value, "All")
 
@@ -65,7 +69,9 @@ class PlatformChoices:
             cls.REDDIT,
             cls.HACKERNEWS,
             cls.TWITTER,
+            cls.FACEBOOK,
             cls.LINKEDIN,
+            cls.QUORA,
             cls.YOUTUBE,
             cls.ALL,
         ]
@@ -174,8 +180,18 @@ PLATFORM_CONTENT_MAPPING = {
         ContentType.BODY.value: ['text'],
         ContentType.COMMENTS.value: ['text'],
     },
+    Platform.FACEBOOK.value: {
+        ContentType.TITLES.value: ['message'],
+        ContentType.BODY.value: ['message'],
+        ContentType.COMMENTS.value: ['message'],
+    },
     Platform.LINKEDIN.value: {
         ContentType.TITLES.value: ['text'],
+        ContentType.BODY.value: ['text'],
+        ContentType.COMMENTS.value: ['text'],
+    },
+    Platform.QUORA.value: {
+        ContentType.TITLES.value: ['title'],
         ContentType.BODY.value: ['text'],
         ContentType.COMMENTS.value: ['text'],
     },
@@ -191,7 +207,9 @@ DEFAULT_CONTENT_TYPES = {
     Platform.REDDIT.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
     Platform.HACKERNEWS.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
     Platform.TWITTER.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
+    Platform.FACEBOOK.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
     Platform.LINKEDIN.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
+    Platform.QUORA.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
     Platform.YOUTUBE.value: [ContentType.TITLES.value, ContentType.BODY.value],
     Platform.ALL.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
 } 

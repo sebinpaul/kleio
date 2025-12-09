@@ -5,9 +5,6 @@ import "./globals.css";
 // Clerk imports
 import {
   ClerkProvider,
-  SignedIn,
-  SignedOut,
-  RedirectToSignIn,
 } from "@clerk/nextjs";
 
 const raleway = Raleway({
@@ -21,9 +18,6 @@ export const metadata: Metadata = {
   description: "Track keywords across Reddit and Hacker News",
 };
 
-// Toggle authentication via env var (NEXT_PUBLIC_AUTH_ENABLED)
-const authEnabled = true;
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -34,18 +28,9 @@ export default function RootLayout({
       <body
         className={`${raleway.variable} font-sans antialiased`}
       >
-        {authEnabled ? (
-          <ClerkProvider>
-            <SignedIn>{children}</SignedIn>
-            <SignedOut>
-              <RedirectToSignIn />
-            </SignedOut>
-          </ClerkProvider>
-        ) : (
-          <>
-            {children}
-          </>
-        )}
+        <ClerkProvider>
+          {children}
+        </ClerkProvider>
       </body>
     </html>
   );

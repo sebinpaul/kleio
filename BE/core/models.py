@@ -208,3 +208,54 @@ class Proxy(Document):
     def save(self, *args, **kwargs):
         self.updated_at = timezone.now()
         return super().save(*args, **kwargs)
+
+
+class PlatformSource(Document):
+    """Per-user platform sources and configs (for LI/FB/Quora settings UI)."""
+
+    user_id = StringField(required=True, help_text="Django User ID")
+    platform = StringField(choices=[c for c in PlatformChoices.get_choices() if c[0] != 'all'], required=True)
+    sources = ListField(StringField(), default=list, help_text="List of source strings (hashtags, page IDs/URLs, topic URLs)")
+    config = DictField(default=dict, help_text="Optional platform-specific config (e.g., tokens)")
+    created_at = DateTimeField(default=timezone.now)
+    updated_at = DateTimeField(default=timezone.now)
+
+    meta = {
+        'collection': 'platform_sources',
+        'indexes': [
+            ('user_id', 'platform'),
+        ],
+        'unique_with': ['user_id', 'platform']
+    }
+
+    def __str__(self):
+        return f"Sources for {self.platform} (user {self.user_id})"
+
+    def save(self, *args, **kwargs):
+        self.updated_at = timezone.now()
+        return super().save(*args, **kwargs)
+
+
+class MonitorCursor(Document):
+    """Persistent cursor for per-user per-platform scanning progress."""
+
+    user_id = StringField(required=True, help_text="Django User ID")
+    platform = StringField(choices=[c for c in PlatformChoices.get_choices() if c[0] != 'all'], required=True)
+    scope = StringField(required=True, help_text="Arbitrary scope key (e.g., keywordId, source URL, page id)")
+    cursor = StringField(required=True, help_text="Cursor value (e.g., last seen ID/URL/ISO date)")
+    created_at = DateTimeField(default=timezone.now)
+    updated_at = DateTimeField(default=timezone.now)
+
+    meta = {
+        'collection': 'monitor_cursors',
+        'indexes': [
+            ('user_id', 'platform', 'scope'),
+        ],
+    }
+
+    def __str__(self):
+        return f"Cursor {self.platform}:{self.scope} for {self.user_id}"
+
+    def save(self, *args, **kwargs):
+        self.updated_at = timezone.now()
+        return super().save(*args, **kwargs)

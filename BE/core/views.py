@@ -4,8 +4,12 @@ from rest_framework.permissions import AllowAny
 from rest_framework import status
 from django.http import JsonResponse
 from django.utils import timezone
-from .models import Keyword, Proxy
+from .models import Keyword, Proxy, PlatformSource
 from .services.auto_monitor_service import auto_monitor_service
+from platforms.youtube.services.youtube_service import youtube_service
+from platforms.facebook.services.facebook_service import facebook_service
+from platforms.linkedin.services.linkedin_service import linkedin_service
+from platforms.quora.services.quora_service import quora_service
 from .enums import Platform
 import json
 import threading
@@ -337,6 +341,32 @@ def get_auto_monitor_status(request):
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def platform_health(request):
+    try:
+        data = {
+            'youtube': {
+                'is_monitoring': youtube_service.is_monitoring,
+                'instance_cooldowns': len(getattr(youtube_service, 'instance_cooldowns', {}) or {}),
+            },
+            'facebook': {
+                'is_monitoring': facebook_service.is_monitoring,
+                'pages_tracked': len(getattr(facebook_service, 'page_last_seen', {}) or {}),
+            },
+            'linkedin': {
+                'is_monitoring': linkedin_service.is_monitoring,
+                'sources_tracked': len(getattr(linkedin_service, 'source_last_seen', {}) or {}),
+            },
+            'quora': {
+                'is_monitoring': quora_service.is_monitoring,
+                'keywords_tracked': len(getattr(quora_service, 'last_seen_top_url', {}) or {}),
+            },
+        }
+        return Response(data)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 def proxies(request):
@@ -405,3 +435,46 @@ def _proxy_to_dict(proxy: Proxy):
         'created_at': proxy.created_at.isoformat() if proxy.created_at else None,
         'updated_at': proxy.updated_at.isoformat() if proxy.updated_at else None,
     }
+
+
+@api_view(['GET', 'PUT'])
+@permission_classes([AllowAny])
+def platform_sources(request, platform: str):
+    """Get or update per-user platform sources and config.
+
+    Body (PUT): { sources: string[] , config: object }
+    """
+    user_id = request.headers.get('X-User-ID')
+    if not user_id:
+        return Response({'error': 'X-User-ID header is required'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        item = PlatformSource.objects(user_id=user_id, platform=platform).first()
+        if request.method == 'GET':
+            if not item:
+                return Response({'platform': platform, 'sources': [], 'config': {} })
+            return Response({
+                'id': str(item.id),
+                'platform': item.platform,
+                'sources': item.sources,
+                'config': item.config or {},
+                'updated_at': item.updated_at.isoformat() if item.updated_at else None,
+            })
+        # PUT
+        data = request.data if isinstance(request.data, dict) else {}
+        sources = data.get('sources') or []
+        config = data.get('config') or {}
+        if not item:
+            item = PlatformSource(user_id=user_id, platform=platform, sources=sources, config=config)
+        else:
+            item.sources = sources
+            item.config = config
+        item.save()
+        return Response({
+            'id': str(item.id),
+            'platform': item.platform,
+            'sources': item.sources,
+            'config': item.config or {},
+            'updated_at': item.updated_at.isoformat() if item.updated_at else None,
+        })
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

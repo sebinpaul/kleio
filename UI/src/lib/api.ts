@@ -58,6 +58,26 @@ class ApiService {
     return headers;
   }
 
+  // Platform sources/settings
+  async getPlatformSources(platform: string, userId: string): Promise<{platform: string; sources: string[]; config: Record<string, unknown>}> {
+    const response = await fetch(`${API_BASE_URL}/api/platforms/${platform}/sources`, {
+      method: "GET",
+      headers: await this.getHeaders(userId),
+    });
+    if (!response.ok) throw new Error("Failed to load platform sources");
+    return response.json();
+  }
+
+  async putPlatformSources(platform: string, payload: { sources: string[]; config?: Record<string, unknown> }, userId: string): Promise<{platform: string; sources: string[]; config: Record<string, unknown>}> {
+    const response = await fetch(`${API_BASE_URL}/api/platforms/${platform}/sources`, {
+      method: "PUT",
+      headers: await this.getHeaders(userId),
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error("Failed to save platform sources");
+    return response.json();
+  }
+
   // Proxies
   async listProxies(): Promise<ProxyItem[]> {
     const response = await fetch(`${API_BASE_URL}/api/proxies`, {

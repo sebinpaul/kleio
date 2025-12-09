@@ -15,7 +15,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from django.utils import timezone
 
-from core.models import Keyword, Mention
+from core.models import Keyword, Mention, MonitorCursor
 from core.enums import Platform, ContentType, MentionContentType
 from core.services.matching_engine import GenericMatchingEngine
 from core.services.email_service import email_notification_service
@@ -59,6 +59,24 @@ class YouTubeService:
         # New item tracking
         self.last_seen_top_id: Dict[str, str] = {}
         self.started_at_ts: float = time.time()
+
+    def _get_cursor(self, user_id: str, scope: str) -> Optional[str]:
+        try:
+            item = MonitorCursor.objects(user_id=user_id, platform=Platform.YOUTUBE.value, scope=scope).first()
+            return item.cursor if item else None
+        except Exception:
+            return None
+
+    def _set_cursor(self, user_id: str, scope: str, cursor_val: str) -> None:
+        try:
+            item = MonitorCursor.objects(user_id=user_id, platform=Platform.YOUTUBE.value, scope=scope).first()
+            if not item:
+                item = MonitorCursor(user_id=user_id, platform=Platform.YOUTUBE.value, scope=scope, cursor=cursor_val)
+            else:
+                item.cursor = cursor_val
+            item.save()
+        except Exception:
+            pass
 
     def start_stream_monitoring(self, keywords: List[Keyword]):
         if self.is_monitoring:
@@ -110,7 +128,8 @@ class YouTubeService:
             try:
                 # Collect across pages within last hour; stop early at last seen head
                 keyword_key = str(keyword.id)
-                last_top = self.last_seen_top_id.get(keyword_key)
+                # Load persisted cursor if memory missing
+                last_top = self.last_seen_top_id.get(keyword_key) or self._get_cursor(keyword.user_id, keyword_key)
                 videos = self._search_invidious(keyword.keyword, limit=50, max_pages=5, stop_at_id=last_top)
                 # Determine head/tail for incremental scanning per keyword
                 ordered_ids = [it.get('videoId') for it in videos if it.get('videoId')]
@@ -185,6 +204,7 @@ class YouTubeService:
                     self.seen_cache[cache_key] = time.time()
                 # Update head marker after processing
                 self.last_seen_top_id[keyword_key] = ordered_ids[0]
+                self._set_cursor(keyword.user_id, keyword_key, ordered_ids[0])
             except Exception as e:
                 logger.error(f"YouTube keyword check failed for '{keyword.keyword}': {e}")
 

@@ -7,6 +7,9 @@ from platforms.reddit.services.realtime_monitor import realtime_stream_monitor
 from platforms.hackernews.services.hackernews_service import HackerNewsService
 from platforms.twitter.services.twitter_service import twitter_service
 from platforms.youtube.services.youtube_service import youtube_service
+from platforms.facebook.services.facebook_service import facebook_service
+from platforms.linkedin.services.linkedin_service import linkedin_service
+from platforms.quora.services.quora_service import quora_service
 from ..models import Keyword, Mention
 from ..enums import Platform
 
@@ -62,6 +65,10 @@ class AutoMonitorService:
         twitter_service.stop_stream_monitoring()
         # Stop YouTube streaming
         youtube_service.stop_stream_monitoring()
+        # Stop Facebook/LinkedIn/Quora
+        facebook_service.stop_stream_monitoring()
+        linkedin_service.stop_stream_monitoring()
+        quora_service.stop_stream_monitoring()
         
         # Wait for thread to finish
         if self.monitor_thread and self.monitor_thread.is_alive():
@@ -113,6 +120,9 @@ class AutoMonitorService:
                     hn_keywords = [kw for kw in active_keywords if kw.platform in [Platform.HACKERNEWS.value, Platform.ALL.value]]
                     twitter_keywords = [kw for kw in active_keywords if kw.platform in [Platform.TWITTER.value, Platform.ALL.value]]
                     youtube_keywords = [kw for kw in active_keywords if kw.platform in [Platform.YOUTUBE.value, Platform.ALL.value]]
+                    facebook_keywords = [kw for kw in active_keywords if kw.platform in [Platform.FACEBOOK.value, Platform.ALL.value]]
+                    linkedin_keywords = [kw for kw in active_keywords if kw.platform in [Platform.LINKEDIN.value, Platform.ALL.value]]
+                    quora_keywords = [kw for kw in active_keywords if kw.platform in [Platform.QUORA.value, Platform.ALL.value]]
                     
                     # Start Reddit monitoring
                     if reddit_keywords:
@@ -132,6 +142,18 @@ class AutoMonitorService:
                     if youtube_keywords:
                         youtube_service.start_stream_monitoring(youtube_keywords)
                         logger.info(f"✅ Updated YouTube monitoring for {len(youtube_keywords)} keywords")
+                    # Start Facebook monitoring
+                    if facebook_keywords:
+                        facebook_service.start_stream_monitoring(facebook_keywords)
+                        logger.info(f"✅ Updated Facebook monitoring for {len(facebook_keywords)} keywords")
+                    # Start LinkedIn monitoring
+                    if linkedin_keywords:
+                        linkedin_service.start_stream_monitoring(linkedin_keywords)
+                        logger.info(f"✅ Updated LinkedIn monitoring for {len(linkedin_keywords)} keywords")
+                    # Start Quora monitoring
+                    if quora_keywords:
+                        quora_service.start_stream_monitoring(quora_keywords)
+                        logger.info(f"✅ Updated Quora monitoring for {len(quora_keywords)} keywords")
                     
                     self.monitored_keywords = current_keyword_ids
                 else:
@@ -163,7 +185,11 @@ class AutoMonitorService:
             'last_check': self.last_keyword_check,
             'check_interval': self.check_interval,
             'hn_streaming': self.hn_service.is_streaming,
-            'twitter_streaming': twitter_service.is_monitoring
+            'twitter_streaming': twitter_service.is_monitoring,
+            'youtube_streaming': youtube_service.is_monitoring,
+            'facebook_streaming': facebook_service.is_monitoring,
+            'linkedin_streaming': linkedin_service.is_monitoring,
+            'quora_streaming': quora_service.is_monitoring,
         }
 
 # Global instance

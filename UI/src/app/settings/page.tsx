@@ -4,12 +4,17 @@ import { useEffect, useState } from "react";
 import { useApi } from "@/lib/api";
 
 export default function SettingsPage() {
-  const { listProxies, createProxy, deleteProxy, uploadProxiesCsv } = useApi();
+  const { listProxies, createProxy, deleteProxy, uploadProxiesCsv, getPlatformSources, putPlatformSources } = useApi() as any;
   const [proxies, setProxies] = useState<any[]>([]);
   const [newProxy, setNewProxy] = useState("");
   const [csvText, setCsvText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Platform sources state
+  const [liSources, setLiSources] = useState("");
+  const [fbSources, setFbSources] = useState("");
+  const [fbToken, setFbToken] = useState("");
+  const [quoraSources, setQuoraSources] = useState("");
 
   const refresh = async () => {
     setLoading(true);
@@ -26,6 +31,23 @@ export default function SettingsPage() {
 
   useEffect(() => {
     refresh();
+    // load platform sources
+    (async () => {
+      try {
+        const li = await getPlatformSources("linkedin");
+        setLiSources((li.sources || []).join("\n"));
+      } catch {}
+      try {
+        const fb = await getPlatformSources("facebook");
+        setFbSources((fb.sources || []).join("\n"));
+        const cfg = fb.config || {};
+        setFbToken((cfg.app_token as string) || "");
+      } catch {}
+      try {
+        const qo = await getPlatformSources("quora");
+        setQuoraSources((qo.sources || []).join("\n"));
+      } catch {}
+    })();
   }, []);
 
   const onAdd = async () => {
@@ -133,6 +155,40 @@ export default function SettingsPage() {
             Upload
           </button>
         </div>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">LinkedIn sources</h2>
+        <p className="text-slate-600 text-sm">One per line. Accepts full URLs or prefixes like hashtag:ai, company:microsoft, profile:satyanadella</p>
+        <textarea className="w-full border rounded p-2 h-32 font-mono text-sm" value={liSources} onChange={(e)=>setLiSources(e.target.value)} />
+        <button
+          onClick={async ()=>{ setLoading(true); setError(null); try { await putPlatformSources("linkedin", { sources: liSources.split(/\n+/).map(s=>s.trim()).filter(Boolean) }); } catch(e:any){ setError(e.message||"Failed to save"); } finally { setLoading(false);} }}
+          disabled={loading}
+          className="px-4 py-2 rounded bg-slate-700 text-white disabled:opacity-50"
+        >Save LinkedIn</button>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Facebook Pages</h2>
+        <p className="text-slate-600 text-sm">One per line. Accepts page:cnn, usernames, or full URLs. Optional App Token to use Graph API.</p>
+        <textarea className="w-full border rounded p-2 h-32 font-mono text-sm" value={fbSources} onChange={(e)=>setFbSources(e.target.value)} />
+        <input className="w-full border rounded p-2 font-mono text-sm" placeholder="Facebook App Access Token (optional)" value={fbToken} onChange={(e)=>setFbToken(e.target.value)} />
+        <button
+          onClick={async ()=>{ setLoading(true); setError(null); try { await putPlatformSources("facebook", { sources: fbSources.split(/\n+/).map(s=>s.trim()).filter(Boolean), config: fbToken? { app_token: fbToken }: {} }); } catch(e:any){ setError(e.message||"Failed to save"); } finally { setLoading(false);} }}
+          disabled={loading}
+          className="px-4 py-2 rounded bg-slate-700 text-white disabled:opacity-50"
+        >Save Facebook</button>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Quora topics</h2>
+        <p className="text-slate-600 text-sm">One per line. Topic URLs like https://www.quora.com/topic/Artificial-Intelligence</p>
+        <textarea className="w-full border rounded p-2 h-32 font-mono text-sm" value={quoraSources} onChange={(e)=>setQuoraSources(e.target.value)} />
+        <button
+          onClick={async ()=>{ setLoading(true); setError(null); try { await putPlatformSources("quora", { sources: quoraSources.split(/\n+/).map(s=>s.trim()).filter(Boolean) }); } catch(e:any){ setError(e.message||"Failed to save"); } finally { setLoading(false);} }}
+          disabled={loading}
+          className="px-4 py-2 rounded bg-slate-700 text-white disabled:opacity-50"
+        >Save Quora</button>
       </section>
     </div>
   );

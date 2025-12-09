@@ -44,6 +44,22 @@ export const platforms: PlatformConfig[] = [
     ],
   },
   {
+    id: PlatformEnum.FACEBOOK,
+    name: "Facebook",
+    icon: (
+      <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M22.675 0h-21.35C.595 0 0 .594 0 1.326v21.348C0 23.406.595 24 1.326 24H12.82v-9.294H9.692V11.08h3.128V8.413c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.794.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.314h3.587l-.467 3.626h-3.12V24h6.116C23.406 24 24 23.406 24 22.674V1.326C24 .594 23.406 0 22.675 0z"/>
+      </svg>
+    ),
+    description: "Monitor public Facebook Pages (API or public fallback)",
+    color: "text-blue-700",
+    defaultStats: [
+      { title: "Total Keywords", value: "0", description: "Active keywords" },
+      { title: "Pages Tracked", value: "0", description: "Configured pages" },
+      { title: "Mentions Today", value: "0", description: "New mentions" },
+    ],
+  },
+  {
     id: PlatformEnum.YOUTUBE,
     name: "YouTube",
     icon: (
@@ -151,6 +167,22 @@ export const platforms: PlatformConfig[] = [
         value: "0",
         description: "Total impressions",
       },
+    ],
+  },
+  {
+    id: PlatformEnum.QUORA,
+    name: "Quora",
+    icon: (
+      <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M12 0C5.373 0 0 4.82 0 10.77 0 16.722 5.373 21.54 12 21.54c1.52 0 2.974-.243 4.313-.69l2.92 2.85c.208.205.548.06.548-.23v-4.87c2.961-1.957 4.219-4.778 4.219-7.83C24 4.82 18.627 0 12 0zm1.5 18.27c-3.584 0-6.49-2.87-6.49-6.407 0-3.538 2.906-6.406 6.49-6.406 3.583 0 6.49 2.868 6.49 6.406 0 3.537-2.907 6.407-6.49 6.407z"/>
+      </svg>
+    ),
+    description: "Monitor questions, answers, and topics",
+    color: "text-rose-600",
+    defaultStats: [
+      { title: "Total Keywords", value: "0", description: "Active keywords" },
+      { title: "Items Scanned", value: "0", description: "Recent items" },
+      { title: "Mentions Today", value: "0", description: "New mentions" },
     ],
   },
 ];

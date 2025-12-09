@@ -105,6 +105,36 @@ const platforms = [
       </div>
     ),
   },
+  {
+    id: "facebook",
+    name: "Facebook",
+    href: "/dashboard/facebook",
+    description: "Public Pages monitoring",
+    color: "from-blue-700 to-sky-500",
+    icon: (
+      <div className="relative">
+        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M22.675 0h-21.35C.595 0 0 .594 0 1.326v21.348C0 23.406.595 24 1.326 24H12.82v-9.294H9.692V11.08h3.128V8.413c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.794.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.314h3.587l-.467 3.626h-3.12V24h6.116C23.406 24 24 23.406 24 22.674V1.326C24 .594 23.406 0 22.675 0z"/>
+        </svg>
+        <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-400 rounded-full"></div>
+      </div>
+    ),
+  },
+  {
+    id: "quora",
+    name: "Quora",
+    href: "/dashboard/quora",
+    description: "Questions & answers monitoring",
+    color: "from-red-700 to-rose-500",
+    icon: (
+      <div className="relative">
+        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12 0C5.373 0 0 4.82 0 10.77 0 16.722 5.373 21.54 12 21.54c1.52 0 2.974-.243 4.313-.69l2.92 2.85c.208.205.548.06.548-.23v-4.87c2.961-1.957 4.219-4.778 4.219-7.83C24 4.82 18.627 0 12 0zm1.5 18.27c-3.584 0-6.49-2.87-6.49-6.407 0-3.538 2.906-6.406 6.49-6.406 3.583 0 6.49 2.868 6.49 6.406 0 3.537-2.907 6.407-6.49 6.407z"/>
+        </svg>
+        <div className="absolute -top-1 -right-1 w-2 h-2 bg-rose-400 rounded-full"></div>
+      </div>
+    ),
+  },
 ];
 
 export default function Sidebar() {
