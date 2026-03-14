@@ -10,7 +10,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { isSignedIn } = useUser();
+  const { isLoaded, isSignedIn } = useUser();
 
   if (!authEnabled) {
     return (
@@ -19,6 +19,14 @@ export default function DashboardLayout({
         <div className="ml-64">
           <main className="p-6">{children}</main>
         </div>
+      </div>
+    );
+  }
+
+  if (!isLoaded) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-muted-foreground">Loading dashboard...</p>
       </div>
     );
   }

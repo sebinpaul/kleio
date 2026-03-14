@@ -108,3 +108,6 @@ UI/junit.xml
 UI/package-lock.json
 UI/yarn.lock
 UI/pnpm-lock.yaml
+
+# Cursor specific
+UI/.cursor
