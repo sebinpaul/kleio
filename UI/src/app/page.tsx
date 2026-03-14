@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion } from "motion/react";
 import {
   ArrowRight,
   Bell,
@@ -25,6 +25,11 @@ import { ShimmerButton } from "@/components/ui/shimmer-button";
 import { ShineBorder } from "@/components/ui/shine-border";
 import { FlickeringGrid } from "@/components/ui/flickering-grid";
 import { AuroraText } from "@/components/ui/aurora-text";
+import { Highlighter } from "@/components/ui/highlighter";
+import {
+  ScrollVelocityContainer,
+  ScrollVelocityRow,
+} from "@/components/ui/scroll-based-velocity";
 
 /* ─── Data ─────────────────────────────────────────────────────────────── */
 
@@ -46,7 +51,7 @@ const features = [
     icon: Globe,
     title: "Multi-Platform Coverage",
     description:
-      "Reddit, Hacker News, and more platforms coming soon. One dashboard for everything.",
+      "Reddit, Hacker News, Twitter, YouTube, LinkedIn, Facebook, and Quora. One dashboard for everything.",
   },
   {
     icon: Mail,
@@ -86,7 +91,7 @@ const steps = [
     number: "02",
     title: "We Monitor 24/7",
     description:
-      "Kleio continuously scans Reddit, Hacker News, and other platforms for your keywords.",
+      "Kleio continuously scans Reddit, Hacker News, Twitter, YouTube, LinkedIn, Facebook, and Quora for your keywords.",
     icon: Activity,
   },
   {
@@ -175,7 +180,7 @@ const pricingPlans = [
 const faqs = [
   {
     q: "What platforms does Kleio currently monitor?",
-    a: "Kleio currently monitors Reddit and Hacker News in real time. We're actively building integrations for X (Twitter), LinkedIn, and Product Hunt.",
+    a: "Kleio monitors Reddit, Hacker News, Twitter, YouTube, LinkedIn, Facebook, and Quora in real time from a single dashboard.",
   },
   {
     q: "How quickly will I receive mention alerts?",
@@ -354,7 +359,7 @@ function Hero() {
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 mb-6 shadow-sm">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-xs text-slate-600 font-medium">
-                Now monitoring Reddit & Hacker News
+                Monitoring 7 platforms in real time
               </span>
             </div>
           </motion.div>
@@ -364,7 +369,15 @@ function Hero() {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-slate-900 tracking-tight leading-[1.1]"
           >
-            Know when your brand{" "}
+            Know when{" "}
+            <Highlighter
+              action="highlight"
+              color="#FF9800"
+              strokeWidth={3}
+              delay={700}
+            >
+              your brand
+            </Highlighter>{" "}
             <AuroraText colors={["#4f46e5", "#7c3aed", "#06b6d4", "#8b5cf6"]}>
               gets mentioned.
             </AuroraText>
@@ -564,51 +577,81 @@ function Hero() {
   );
 }
 
-function PlatformStrip() {
-  const platforms = [
-    { name: "Reddit", active: true },
-    { name: "Hacker News", active: true },
-    { name: "X (Twitter)", active: false },
-    { name: "LinkedIn", active: false },
-    { name: "Product Hunt", active: false },
-  ];
+const PlatformIcon = {
+  Reddit: ({ className }: { className?: string }) => (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z" />
+    </svg>
+  ),
+  HackerNews: ({ className }: { className?: string }) => (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M0 24V0h24v24H0zM6.951 5.896l4.112 15.173L19.088 5.896h-2.288l-2.219 8.2-4.036-8.2h-2.288z" />
+    </svg>
+  ),
+  Twitter: ({ className }: { className?: string }) => (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z" />
+    </svg>
+  ),
+  YouTube: ({ className }: { className?: string }) => (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M23.498 6.186a2.995 2.995 0 00-2.109-2.12C19.483 3.5 12 3.5 12 3.5s-7.483 0-9.389.566A2.995 2.995 0 00.502 6.186 31.54 31.54 0 000 12a31.54 31.54 0 00.502 5.814 2.995 2.995 0 002.109 2.12C4.517 20.5 12 20.5 12 20.5s7.483 0 9.389-.566a2.995 2.995 0 002.109-2.12A31.54 31.54 0 0024 12a31.54 31.54 0 00-.502-5.814zM9.75 15.5v-7l6 3.5-6 3.5z" />
+    </svg>
+  ),
+  LinkedIn: ({ className }: { className?: string }) => (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+    </svg>
+  ),
+  Facebook: ({ className }: { className?: string }) => (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M22.675 0h-21.35C.595 0 0 .594 0 1.326v21.348C0 23.406.595 24 1.326 24H12.82v-9.294H9.692V11.08h3.128V8.413c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.794.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.314h3.587l-.467 3.626h-3.12V24h6.116C23.406 24 24 23.406 24 22.674V1.326C24 .594 23.406 0 22.675 0z" />
+    </svg>
+  ),
+  Quora: ({ className }: { className?: string }) => (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M12 0C5.373 0 0 4.82 0 10.77 0 16.722 5.373 21.54 12 21.54c1.52 0 2.974-.243 4.313-.69l2.92 2.85c.208.205.548.06.548-.23v-4.87c2.961-1.957 4.219-4.778 4.219-7.83C24 4.82 18.627 0 12 0zm1.5 18.27c-3.584 0-6.49-2.87-6.49-6.407 0-3.538 2.906-6.406 6.49-6.406 3.583 0 6.49 2.868 6.49 6.406 0 3.537-2.907 6.407-6.49 6.407z" />
+    </svg>
+  ),
+};
 
+const platformItems = [
+  { name: "Reddit", icon: PlatformIcon.Reddit, color: "text-[#FF4500]" },
+  { name: "Hacker News", icon: PlatformIcon.HackerNews, color: "text-[#FF6600]" },
+  { name: "Twitter", icon: PlatformIcon.Twitter, color: "text-[#1DA1F2]" },
+  { name: "YouTube", icon: PlatformIcon.YouTube, color: "text-[#FF0000]" },
+  { name: "LinkedIn", icon: PlatformIcon.LinkedIn, color: "text-[#0A66C2]" },
+  { name: "Facebook", icon: PlatformIcon.Facebook, color: "text-[#1877F2]" },
+  { name: "Quora", icon: PlatformIcon.Quora, color: "text-[#B92B27]" },
+];
+
+function PlatformStrip() {
   return (
-    <section className="py-10 border-y border-slate-100">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6">
-        <p className="text-center text-xs text-slate-400 mb-5 uppercase tracking-widest font-medium">
-          Platforms we monitor
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          {platforms.map((p) => (
-            <div
-              key={p.name}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full border ${
-                p.active
-                  ? "border-slate-200 bg-white shadow-sm"
-                  : "border-slate-100 bg-slate-50 opacity-50"
-              }`}
-            >
-              <div
-                className={`w-1.5 h-1.5 rounded-full ${
-                  p.active ? "bg-emerald-500" : "bg-slate-300"
-                }`}
-              />
-              <span
-                className={`text-xs font-medium ${
-                  p.active ? "text-slate-700" : "text-slate-400"
-                }`}
-              >
-                {p.name}
-              </span>
-              {!p.active && (
-                <span className="text-[9px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                  Soon
-                </span>
-              )}
-            </div>
-          ))}
+    <section className="py-10 border-y border-slate-100 overflow-hidden">
+      <p className="text-center text-xs text-slate-400 mb-6 uppercase tracking-widest font-medium">
+        Platforms we monitor
+      </p>
+      <div className="relative max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="overflow-hidden py-2">
+          <ScrollVelocityContainer>
+            <ScrollVelocityRow baseVelocity={5} direction={1}>
+              {platformItems.map((p) => {
+                const Icon = p.icon;
+                return (
+                  <div
+                    key={p.name}
+                    className="flex items-center gap-2.5 mx-3 px-5 py-2.5 rounded-lg border border-slate-200 bg-white whitespace-nowrap"
+                  >
+                    <Icon className={`w-4 h-4 ${p.color}`} />
+                    <span className="text-sm font-medium text-slate-700">{p.name}</span>
+                  </div>
+                );
+              })}
+            </ScrollVelocityRow>
+          </ScrollVelocityContainer>
         </div>
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-white to-transparent z-10" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-white to-transparent z-10" />
       </div>
     </section>
   );
@@ -623,7 +666,10 @@ function FeaturesSection() {
             Features
           </p>
           <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">
-            Everything you need to listen smarter
+            Everything you need to{" "}
+            <Highlighter action="highlight" color="#FF9800" strokeWidth={3} delay={600}>
+              listen smarter
+            </Highlighter>
           </h2>
           <p className="mt-4 text-slate-500 max-w-xl mx-auto">
             From instant detection to intelligent filtering, Kleio gives you the
@@ -671,7 +717,10 @@ function HowItWorksSection() {
             How It Works
           </p>
           <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">
-            Three steps. Full coverage.
+            Three steps.{" "}
+            <Highlighter action="highlight" color="#FF9800" strokeWidth={3} delay={600}>
+              Full coverage.
+            </Highlighter>
           </h2>
           <p className="mt-4 text-slate-500 max-w-lg mx-auto">
             Get started in under two minutes. No complex setup, no credit card
@@ -720,7 +769,11 @@ function TestimonialsSection() {
             Testimonials
           </p>
           <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">
-            Teams that ship faster with Kleio
+            Teams that{" "}
+            <Highlighter action="highlight" color="#FF9800" strokeWidth={3} delay={600}>
+              ship faster
+            </Highlighter>{" "}
+            with Kleio
           </h2>
         </motion.div>
 
@@ -770,7 +823,10 @@ function PricingSection() {
         <motion.div {...fadeUp} className="text-center mb-16">
           <p className="text-sm font-semibold text-indigo-600 mb-2">Pricing</p>
           <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">
-            Simple, transparent pricing
+            Simple,{" "}
+            <Highlighter action="highlight" color="#FF9800" strokeWidth={3} delay={600}>
+              transparent pricing
+            </Highlighter>
           </h2>
           <p className="mt-4 text-slate-500 max-w-lg mx-auto">
             Start free. Upgrade when you need more keywords, platforms, and
@@ -876,7 +932,10 @@ function FaqSection() {
         <motion.div {...fadeUp} className="text-center mb-16">
           <p className="text-sm font-semibold text-indigo-600 mb-2">FAQ</p>
           <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">
-            Questions & Answers
+            Questions &{" "}
+            <Highlighter action="highlight" color="#FF9800" strokeWidth={3} delay={600}>
+              Answers
+            </Highlighter>
           </h2>
         </motion.div>
 
@@ -942,7 +1001,10 @@ function CtaSection() {
             <Bell className="w-5 h-5 text-indigo-600" />
           </div>
           <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">
-            Start listening today.
+            Start{" "}
+            <Highlighter action="highlight" color="#FF9800" strokeWidth={3} delay={600}>
+              listening today.
+            </Highlighter>
           </h2>
           <p className="mt-4 text-slate-500 max-w-md mx-auto">
             Join hundreds of teams using Kleio to catch every mention, respond
