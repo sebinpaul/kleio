@@ -37,7 +37,7 @@ export function Highlighter({
   iterations = 2,
   padding = 2,
   multiline = true,
-  isView = false,
+  isView = true,
   delay = 0,
 }: HighlighterProps) {
   const elementRef = useRef<HTMLSpanElement>(null)
@@ -51,68 +51,27 @@ export function Highlighter({
   const shouldShow = !isView || isInView
 
   useEffect(() => {
+    if (!shouldShow) return
     const element = elementRef.current
-    let resizeObserver: ResizeObserver | null = null
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
+    if (!element || annotationRef.current) return
 
-    if (shouldShow && element) {
-      const draw = () => {
-        if (cancelled) return
-
-        const annotation = annotate(element, {
-          type: action,
-          color,
-          strokeWidth,
-          animationDuration,
-          iterations,
-          padding,
-          multiline,
-        })
-
-        annotationRef.current = annotation
-        annotation.show()
-
-        resizeObserver = new ResizeObserver(() => {
-          annotation.hide()
-          annotation.show()
-        })
-
-        resizeObserver.observe(element)
-      }
-
-      document.fonts.ready.then(() => {
-        if (cancelled) return
-        if (delay > 0) {
-          timer = setTimeout(draw, delay)
-        } else {
-          draw()
-        }
+    const timer = setTimeout(() => {
+      if (annotationRef.current) return
+      const annotation = annotate(element, {
+        type: action,
+        color,
+        strokeWidth,
+        animationDuration,
+        iterations,
+        padding,
+        multiline,
       })
-    }
+      annotationRef.current = annotation
+      annotation.show()
+    }, delay)
 
-    return () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-      if (annotationRef.current) {
-        annotationRef.current.remove()
-        annotationRef.current = null
-      }
-      if (resizeObserver) {
-        resizeObserver.disconnect()
-      }
-    }
-  }, [
-    shouldShow,
-    delay,
-    action,
-    color,
-    strokeWidth,
-    animationDuration,
-    iterations,
-    padding,
-    multiline,
-  ])
+    return () => clearTimeout(timer)
+  }, [shouldShow, delay, action, color, strokeWidth, animationDuration, iterations, padding, multiline])
 
   return (
     <span ref={elementRef} className="relative inline-block bg-transparent">

@@ -1,261 +1,227 @@
-# Kleio - Social Mention Monitoring Platform
+# Kleio
 
-A comprehensive social listening tool that monitors keywords across Reddit and Hacker News, with email notifications for instant alerts. Similar to F5Bot, Kleio allows users to track specific keywords and receive email notifications when mentions are detected.
+Social mention monitoring platform. Track keywords across Reddit, Hacker News, Twitter, YouTube, LinkedIn, Facebook, and Quora. Get email alerts when mentions are detected.
 
-## 🎯 Overview
+## Architecture
 
-Kleio is a mention monitoring tool that allows users to track specific keywords across online platforms like Reddit, Hacker News, Twitter, and LinkedIn. Whenever a keyword is detected, users receive email alerts with context and source links.
+```
+┌─────────────────────────────────┐      ┌─────────────────────────────────┐
+│  Frontend (UI/)                 │      │  Backend (BE/)                  │
+│  Next.js 15 · App Router       │─────▶│  Django 5 · DRF                 │
+│  Tailwind · shadcn/ui          │ REST │  MongoEngine                    │
+│  Clerk (auth)                   │      │  Clerk (JWT verification)       │
+└─────────────────────────────────┘      └──────────┬──────────────────────┘
+                                                    │
+                                         ┌──────────▼──────────┐
+                                         │  MongoDB             │
+                                         │  Keywords · Mentions │
+                                         └──────────┬──────────┘
+                                                    │
+                                         ┌──────────▼──────────┐
+                                         │  Platform Services   │
+                                         │  Reddit (PRAW)       │
+                                         │  Hacker News (Algolia)│
+                                         │  Twitter · YouTube   │
+                                         │  LinkedIn · Facebook │
+                                         │  Quora               │
+                                         └──────────┬──────────┘
+                                                    │
+                                         ┌──────────▼──────────┐
+                                         │  Resend (email)      │
+                                         └─────────────────────┘
+```
 
-## ✨ Features
+**Frontend:** Next.js 15 with TypeScript, Tailwind CSS, shadcn/ui components, Clerk authentication, Framer Motion (minimal — expand/collapse only).
 
-- **Multi-platform monitoring**: Reddit and Hacker News (Twitter and LinkedIn planned)
-- **Real-time keyword tracking**: Automated scraping and monitoring
-- **Email notifications**: Instant alerts with mention details and links
-- **User authentication**: Secure login via Clerk
-- **Modern UI**: Next.js with shadcn/ui components
-- **Scalable backend**: Django with REST API
-- **Keyword management**: Add, view, and delete keywords from dashboard
-- **Duplicate prevention**: Smart deduplication to avoid spam
+**Backend:** Django 5 with Django REST Framework. MongoDB via MongoEngine for keywords and mentions. Platform-specific scraping services. Resend for email notifications. Clerk JWT for API auth.
 
-## 🏗️ Architecture
+**Database:** MongoDB (keywords, mentions, platform data). SQLite fallback for Django internals.
 
-- **Frontend**: Next.js 14 with TypeScript, Clerk auth, shadcn/ui
-- **Backend**: Django with Django Rest Framework (DRF)
-- **Database**: MongoDB (flexible schema for mentions and keywords)
-- **Email**: SendGrid/Resend/Mailgun integration
-- **Authentication**: Clerk (JWT-based user verification)
-- **Background Tasks**: Django Q or Celery for scheduled scraping
+## Project Structure
 
-## 🚀 Quick Start
+```
+kleio/
+├── BE/                           # Django backend
+│   ├── manage.py
+│   ├── settings.py
+│   ├── urls.py
+│   ├── requirements.txt
+│   ├── core/                     # Main Django app
+│   │   ├── models.py             # Keyword, Mention models (MongoEngine)
+│   │   ├── views.py              # REST API endpoints
+│   │   ├── serializers.py
+│   │   ├── enums.py              # Platform, MatchMode, ContentType enums
+│   │   ├── services/
+│   │   │   ├── auto_monitor_service.py
+│   │   │   ├── matching_engine.py
+│   │   │   ├── email_service.py
+│   │   │   ├── clerk_service.py
+│   │   │   ├── instant_notification_service.py
+│   │   │   └── proxy_service.py
+│   │   └── management/commands/
+│   │       └── auto_monitor.py   # Background monitoring command
+│   └── platforms/                # Platform integrations
+│       ├── reddit/services/      # PRAW + realtime stream
+│       ├── hackernews/services/  # Algolia API
+│       ├── twitter/services/     # Scraping-based
+│       ├── youtube/services/     # Invidious API
+│       ├── linkedin/services/    # Scraping-based
+│       ├── facebook/services/    # Public page scraping
+│       └── quora/services/       # Scraping-based
+│
+└── UI/                           # Next.js frontend
+    └── src/
+        ├── app/
+        │   ├── page.tsx          # Landing page (server component + SEO metadata)
+        │   ├── _landing.tsx      # Landing page UI (client component)
+        │   ├── dashboard/
+        │   │   ├── layout.tsx    # Auth guard + sidebar layout
+        │   │   ├── page.tsx      # Overview — all platforms + all keywords
+        │   │   ├── reddit/       # Platform-specific keyword management
+        │   │   ├── hackernews/
+        │   │   ├── twitter/
+        │   │   ├── youtube/
+        │   │   ├── linkedin/
+        │   │   ├── facebook/
+        │   │   └── quora/
+        │   ├── sign-in/          # Clerk sign-in
+        │   └── sign-up/          # Clerk sign-up
+        ├── components/
+        │   ├── PlatformDashboard.tsx  # Shared dashboard layout for all platforms
+        │   ├── KeywordList.tsx        # Keyword CRUD list (real API)
+        │   ├── KeywordModal.tsx       # Add/edit keyword form
+        │   ├── DeleteKeywordModal.tsx
+        │   └── Sidebar.tsx
+        └── lib/
+            ├── api.ts            # Backend API client
+            ├── enums.ts          # Platform, MatchMode, ContentType
+            ├── platforms.tsx      # Platform configs (icons, colors)
+            └── utils.ts
+```
+
+## Quick Start
 
 ### Prerequisites
 
 - Python 3.10+
 - Node.js 18+
-- MongoDB
-- Reddit API credentials (optional for testing)
-- SendGrid API key
-- Clerk account
+- MongoDB running locally (or a remote URI)
+- Reddit API credentials (for Reddit monitoring)
+- Resend API key (for email notifications)
+- Clerk account (for authentication)
 
-### Backend Setup
-
-1. **Clone and navigate to backend**:
-
-   ```bash
-   cd BE
-   ```
-
-2. **Set up Python environment**:
-
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-
-3. **Set up environment variables**:
-
-   ```bash
-   export REDDIT_CLIENT_ID=your_client_id_here
-   export REDDIT_CLIENT_SECRET=your_client_secret_here
-   export SENDGRID_API_KEY=your_sendgrid_api_key
-   export MONGODB_URI=mongodb://localhost:27017/kleio
-   export CLERK_SECRET_KEY=your_clerk_secret_key
-   ```
-
-4. **Run Django migrations**:
-
-   ```bash
-   python manage.py migrate
-   ```
-
-5. **Start the backend**:
-   ```bash
-   python manage.py runserver
-   ```
-
-### Frontend Setup
-
-1. **Navigate to frontend**:
-
-   ```bash
-   cd UI
-   ```
-
-2. **Install dependencies**:
-
-   ```bash
-   npm install
-   ```
-
-3. **Configure environment variables**:
-
-   ```bash
-   export NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_key
-   export CLERK_SECRET_KEY=your_clerk_secret
-   export NEXT_PUBLIC_API_URL=http://localhost:8000
-   ```
-
-4. **Run the frontend**:
-   ```bash
-   npm run dev
-   ```
-
-## 🔍 Platform Integrations
-
-### Reddit Integration
-
-- **OAuth Authentication**: Uses client credentials flow for app-level access
-- **Search API**: Queries Reddit's search endpoint with keywords
-- **Rate Limiting**: Respects Reddit's API limits
-- **Data Parsing**: Extracts post details (title, author, score, etc.)
-
-### Hacker News Integration
-
-- **Algolia API**: Uses Hacker News' public Algolia API
-- **Latest Posts**: Monitors recent posts for keyword matches
-- **No Authentication**: Public API, no rate limits
-- **Real-time**: Checks for new mentions regularly
-
-## 📧 Email Notifications
-
-- **Template-based**: Professional email templates
-- **Real-time**: Immediate notification on mention
-- **Rich content**: Includes mention details and source links
-- **Configurable**: Easy to customize templates
-- **Batch processing**: Efficient email delivery
-
-## 🔐 Authentication
-
-Clerk integration for secure user management:
-
-- **User registration/login**: OAuth and email/password support
-- **JWT-based API security**: Secure frontend-backend communication
-- **User-specific data isolation**: Each user sees only their keywords and mentions
-- **Route protection**: Secure dashboard access
-
-## 🏗️ System Flow
-
-1. **Authentication**: Clerk manages user sign up, login, and session
-2. **Keyword Management**: Users add/remove keywords via dashboard
-3. **Background Monitoring**: Django tasks poll platforms every X minutes
-4. **Keyword Matching**: Each post/comment is checked against user keywords
-5. **Notification**: Matched mentions trigger email alerts with context
-
-## 📁 Project Structure
-
-### Backend (Django):
-
-```
-BE/
-├── kleio_backend/          # Django project settings
-├── tracker/               # Main app
-│   ├── models.py         # User, Keyword, Mention models
-│   ├── views.py          # REST API endpoints
-│   ├── serializers.py    # DRF serializers
-│   ├── services/         # Business logic
-│   │   ├── reddit_service.py
-│   │   ├── hackernews_service.py
-│   │   └── email_service.py
-│   └── management/       # Custom Django commands
-└── manage.py
-```
-
-### Frontend (Next.js):
-
-```
-UI/src/
-├── app/                  # Next.js app router
-│   ├── dashboard/        # Main dashboard pages
-│   └── layout.tsx        # Root layout
-├── components/           # Reusable UI components
-│   ├── AddKeywordModal.tsx
-│   ├── KeywordList.tsx
-│   └── ui/              # shadcn/ui components
-├── lib/                 # Utilities and API client
-└── middleware.ts        # Clerk middleware
-```
-
-## 🔧 API Endpoints
-
-### Keywords API:
-
-- `GET /api/keywords/` - Get user's keywords
-- `POST /api/keywords/` - Create new keyword
-- `PUT /api/keywords/{id}/` - Update keyword
-- `DELETE /api/keywords/{id}/` - Delete keyword
-- `PUT /api/keywords/{id}/toggle/` - Toggle keyword status
-
-### Mentions API:
-
-- `GET /api/mentions/` - Get user's mentions
-- `POST /api/mentions/` - Create mention (internal)
-
-### Platform APIs:
-
-- `GET /api/reddit/search/?keyword={keyword}` - Test Reddit search
-- `GET /api/hackernews/search/?keyword={keyword}` - Test HN search
-
-## 🛡️ Security & Performance
-
-- **Clerk handles authentication security**
-- **Input validation and sanitization**
-- **Duplicate notification prevention**
-- **Rate limiting for scrapers**
-- **Secure email transport**
-- **JWT-based API security**
-
-## 🎯 MVP Features
-
-- ✅ User sign up and login via Clerk
-- ✅ Add, view, and delete keywords from dashboard
-- ✅ Email notifications for keyword mentions
-- ✅ Duplicate email prevention
-- ✅ View current keyword list
-- ✅ Regular polling of Reddit and HN
-- ✅ Basic error handling
-
-## 🚀 Future Enhancements
-
-- **Additional platforms**: Twitter (X), LinkedIn, YouTube
-- **Slack/webhook integrations**
-- **Daily/weekly summary digests**
-- **Custom alert frequency**
-- **Team-based keyword tracking**
-- **Admin dashboard**
-
-## 🔧 Environment Variables
-
-### Backend:
+### Backend
 
 ```bash
-REDDIT_CLIENT_ID=your_reddit_client_id
-REDDIT_CLIENT_SECRET=your_reddit_client_secret
-SENDGRID_API_KEY=your_sendgrid_key
+cd BE
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Create `BE/.env`:
+
+```env
+# MongoDB
 MONGODB_URI=mongodb://localhost:27017/kleio
-CLERK_SECRET_KEY=your_clerk_secret_key
+MONGODB_DATABASE=kleio
+
+# Reddit API (https://www.reddit.com/prefs/apps)
+REDDIT_CLIENT_ID=
+REDDIT_CLIENT_SECRET=
+REDDIT_USER_AGENT=KleioMentionTracker/1.0
+
+# Email (https://resend.com)
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=alerts@yourdomain.com
+
+# Clerk (https://clerk.com) — used for user email lookup
+CLERK_SECRET_KEY=
 ```
 
-### Frontend:
+Start the server:
 
 ```bash
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_key
-CLERK_SECRET_KEY=your_clerk_secret
-NEXT_PUBLIC_API_URL=http://localhost:8000
+python manage.py migrate
+python manage.py runserver
 ```
 
-## 🤝 Contributing
+Start background monitoring (separate terminal):
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+```bash
+python manage.py auto_monitor
+```
 
-## 📄 License
+### Frontend
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+```bash
+cd UI
+npm install
+```
 
-## 🆘 Support
+Create `UI/.env`:
 
-For support, email support@kleio.com or join our Slack channel.
+```env
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_AUTH_ENABLED=true
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+```
+
+Start the dev server:
+
+```bash
+npm run dev
+```
+
+The app runs at `http://localhost:3000`. The backend API runs at `http://localhost:8000`.
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/keywords/` | List user's keywords (filtered by `?platform=`) |
+| POST | `/api/keywords/` | Create keyword |
+| PUT | `/api/keywords/{id}/` | Update keyword |
+| DELETE | `/api/keywords/{id}/` | Delete keyword |
+| PUT | `/api/keywords/{id}/toggle/` | Toggle keyword on/off |
+| GET | `/api/mentions/` | List user's mentions |
+| GET | `/api/reddit/search/?keyword=` | Test Reddit search |
+| GET | `/api/hackernews/search/?keyword=` | Test Hacker News search |
+
+All endpoints require a Clerk JWT in the `Authorization` header. The frontend handles this automatically.
+
+## Platforms
+
+| Platform | Method | Status |
+|----------|--------|--------|
+| Reddit | PRAW API + realtime SubredditStream | Active |
+| Hacker News | Algolia public API | Active |
+| Twitter | Web scraping | Active |
+| YouTube | Invidious API | Active |
+| LinkedIn | Web scraping | Active |
+| Facebook | Public page scraping | Active |
+| Quora | Web scraping | Active |
+
+## Keyword Configuration
+
+Each keyword supports:
+
+- **Match mode:** Exact, Contains, Word Boundary, Starts With, Ends With
+- **Case sensitivity:** Case insensitive (default), case sensitive
+- **Content types:** Titles, Body, Comments
+- **Platform filters:** Subreddits, hashtags, channels, pages, etc.
+- **Notifications:** Email alerts via Resend
+
+## System Flow
+
+1. User signs up via Clerk and adds keywords through the dashboard
+2. `auto_monitor` management command polls each platform on a schedule
+3. New posts/comments are checked against user keywords via the matching engine
+4. Matches are saved as mentions and trigger email notifications via Resend
+5. Users view and manage keywords per-platform in the dashboard
+
+## License
+
+MIT

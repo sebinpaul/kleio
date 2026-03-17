@@ -54,31 +54,6 @@ body {
 
 /* ─── Dashboard Components ────────────────────────────────────────────── */
 
-.metric-card {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 1rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  transition: all 0.2s ease;
-}
-
-.metric-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
-  transform: translateY(-1px);
-}
-
-.enhanced-card {
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 1rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  transition: all 0.2s ease;
-}
-
-.enhanced-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
-}
-
 .gradient-button {
   background: var(--primary);
   color: white;
@@ -91,28 +66,6 @@ body {
   background: #4338ca;
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
-}
-
-.activity-dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 9999px;
-}
-
-.activity-dot.success {
-  background: #10b981;
-  box-shadow: 0 0 6px #10b981;
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-.activity-dot.warning {
-  background: #f59e0b;
-  box-shadow: 0 0 6px #f59e0b;
-}
-
-.activity-dot.error {
-  background: #ef4444;
-  box-shadow: 0 0 6px #ef4444;
 }
 
 .nav-hover:hover {
@@ -213,4 +166,39 @@ textarea:focus {
   100% {
     transform: translateZ(0) rotate(360deg);
     }
-  }}
+  }
+}
+
+/* Scroll-reveal fade-up animation (replaces framer-motion fadeUp) */
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reveal {
+  opacity: 0;
+}
+
+.reveal.revealed {
+  animation: reveal-up 0.5s ease-out forwards;
+}
+
+/* Hero elements animate immediately on load via CSS — no JS dependency.
+   This is critical for LCP: the hero heading must not wait for hydration. */
+.hero-enter {
+  opacity: 0;
+  transform: translateY(24px);
+  animation: reveal-up 0.5s ease-out forwards;
+}
+
+.hero-enter-1 { animation-delay: 0ms; }
+.hero-enter-2 { animation-delay: 100ms; }
+.hero-enter-3 { animation-delay: 200ms; }
+.hero-enter-4 { animation-delay: 300ms; }
+.hero-enter-5 { animation-delay: 500ms; }

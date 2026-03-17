@@ -20,7 +20,6 @@
     "next": "15.3.4",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "recharts": "^3.5.1",
     "rough-notation": "^0.5.1",
     "tailwind-merge": "^3.3.1"
   },
