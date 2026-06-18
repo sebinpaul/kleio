@@ -1,0 +1,85 @@
+from bson.objectid import ObjectId
+from rest_framework.response import Response
+from rest_framework import status
+
+from .enums import Platform
+
+MAX_KEYWORD_LENGTH = 255
+MAX_FILTER_COUNT = 50
+MAX_FILTER_ITEM_LENGTH = 200
+
+VALID_PLATFORMS = {p.value for p in Platform}
+SPECIFIC_PLATFORMS = {p.value for p in Platform if p != Platform.ALL}
+
+
+def _bad_request(message: str) -> Response:
+    return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def validate_keyword_id(keyword_id: str) -> Response | None:
+    if not ObjectId.is_valid(keyword_id) or str(ObjectId(keyword_id)) != keyword_id:
+        return _bad_request('Invalid keyword id')
+    return None
+
+
+def parse_keyword_text(raw) -> tuple[str | None, Response | None]:
+    if raw is None:
+        return None, _bad_request('keyword is required')
+    if not isinstance(raw, str):
+        return None, _bad_request('keyword must be a string')
+    keyword = raw.strip()
+    if not keyword:
+        return None, _bad_request('keyword is required')
+    if len(keyword) > MAX_KEYWORD_LENGTH:
+        return None, _bad_request(f'keyword must be at most {MAX_KEYWORD_LENGTH} characters')
+    return keyword, None
+
+
+def parse_platform(raw, *, url_platform: str | None = None) -> tuple[str | None, Response | None]:
+    if url_platform is not None:
+        if url_platform not in SPECIFIC_PLATFORMS:
+            return None, _bad_request(f'platform must be one of: {", ".join(sorted(SPECIFIC_PLATFORMS))}')
+        if raw is not None and raw != url_platform:
+            return None, _bad_request('platform in request body must match the URL platform')
+        return url_platform, None
+
+    platform = raw if raw is not None else Platform.REDDIT.value
+    if not isinstance(platform, str):
+        return None, _bad_request('platform must be a string')
+    if platform not in VALID_PLATFORMS:
+        return None, _bad_request(f'platform must be one of: {", ".join(sorted(VALID_PLATFORMS))}')
+    return platform, None
+
+
+def parse_platform_filters(raw) -> tuple[list[str] | None, Response | None]:
+    if raw is None:
+        return [], None
+    if isinstance(raw, str):
+        raw = [part.strip() for part in raw.split(',') if part.strip()]
+    if not isinstance(raw, list):
+        return None, _bad_request('platformSpecificFilters must be a list of strings')
+
+    filters: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            return None, _bad_request('platformSpecificFilters must be a list of strings')
+        value = item.strip()
+        if not value:
+            continue
+        if len(value) > MAX_FILTER_ITEM_LENGTH:
+            return None, _bad_request(
+                f'each platformSpecificFilters entry must be at most {MAX_FILTER_ITEM_LENGTH} characters'
+            )
+        filters.append(value)
+
+    if len(filters) > MAX_FILTER_COUNT:
+        return None, _bad_request(f'platformSpecificFilters supports at most {MAX_FILTER_COUNT} entries')
+    return filters, None
+
+
+def parse_enabled(raw, *, default: bool = True) -> tuple[bool | None, Response | None]:
+    if raw is None:
+        return default, None
+    if not isinstance(raw, bool):
+        return None, _bad_request('enabled must be a boolean')
+    return raw, None

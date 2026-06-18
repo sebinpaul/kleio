@@ -183,59 +183,6 @@ class UserProfile(Document):
         return super().save(*args, **kwargs)
 
 
-class Proxy(Document):
-    """Model for storing HTTP/SOCKS proxy endpoints"""
-    
-    url = StringField(required=True, help_text="Proxy URL, e.g. http://user:pass@host:port or socks5://host:1080")
-    is_active = BooleanField(default=True)
-    last_failed_at = DateTimeField()
-    cooldown_until = DateTimeField()
-    created_at = DateTimeField(default=timezone.now)
-    updated_at = DateTimeField(default=timezone.now)
-    
-    meta = {
-        'collection': 'proxies',
-        'indexes': [
-            ('is_active',),
-            ('cooldown_until',),
-            ('created_at',)
-        ]
-    }
-    
-    def __str__(self):
-        return f"Proxy {self.url} (active={self.is_active})"
-    
-    def save(self, *args, **kwargs):
-        self.updated_at = timezone.now()
-        return super().save(*args, **kwargs)
-
-
-class PlatformSource(Document):
-    """Per-user platform sources and configs (for LI/FB/Quora settings UI)."""
-
-    user_id = StringField(required=True, help_text="Django User ID")
-    platform = StringField(choices=[c for c in PlatformChoices.get_choices() if c[0] != 'all'], required=True)
-    sources = ListField(StringField(), default=list, help_text="List of source strings (hashtags, page IDs/URLs, topic URLs)")
-    config = DictField(default=dict, help_text="Optional platform-specific config (e.g., tokens)")
-    created_at = DateTimeField(default=timezone.now)
-    updated_at = DateTimeField(default=timezone.now)
-
-    meta = {
-        'collection': 'platform_sources',
-        'indexes': [
-            ('user_id', 'platform'),
-        ],
-        'unique_with': ['user_id', 'platform']
-    }
-
-    def __str__(self):
-        return f"Sources for {self.platform} (user {self.user_id})"
-
-    def save(self, *args, **kwargs):
-        self.updated_at = timezone.now()
-        return super().save(*args, **kwargs)
-
-
 class MonitorCursor(Document):
     """Persistent cursor for per-user per-platform scanning progress."""
 

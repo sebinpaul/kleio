@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useApi, KeywordRequest, Keyword } from "@/lib/api";
+import { useApi, KeywordRequest, Keyword, ApiUnauthorizedError } from "@/lib/api";
 import { 
   Platform, PlatformLabels, PlatformFilterLabels, PlatformPlaceholders, PlatformDescriptions,
   MatchMode, ContentType, ContentTypeLabels
@@ -128,6 +128,7 @@ export default function KeywordModal({
       onClose();
       onKeywordSaved?.();
     } catch (err) {
+      if (err instanceof ApiUnauthorizedError) return;
       console.error(editKeyword ? "Error updating keyword:" : "Error creating keyword:", err);
       setError(editKeyword ? "Failed to update keyword. Please try again." : "Failed to create keyword. Please try again.");
     } finally {

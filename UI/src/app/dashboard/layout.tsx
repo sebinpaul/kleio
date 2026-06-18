@@ -3,25 +3,12 @@
 import { useUser } from "@clerk/nextjs";
 import Sidebar from "../../components/Sidebar";
 
-const authEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED !== "false";
-
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const { isLoaded, isSignedIn } = useUser();
-
-  if (!authEnabled) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Sidebar />
-        <div className="ml-64">
-          <main className="p-6">{children}</main>
-        </div>
-      </div>
-    );
-  }
 
   if (!isLoaded) {
     return (

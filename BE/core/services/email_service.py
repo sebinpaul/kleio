@@ -240,7 +240,7 @@ class EmailNotificationService:
                     
                     <div class="footer">
                         <p>You're receiving this because you're monitoring "{keyword.keyword}" on {platform_name}.</p>
-                        <p><a href="{self.app_url}/dashboard">Manage your keywords</a> | <a href="{self.app_url}/settings">Email preferences</a></p>
+                        <p><a href="{self.app_url}/dashboard">Manage your keywords</a></p>
                     </div>
                 </div>
             </div>
@@ -318,7 +318,7 @@ class EmailNotificationService:
         html += f"""
                     <div class="footer">
                         <a href="{self.app_url}/dashboard" class="btn">View All Mentions</a>
-                        <p><a href="{self.app_url}/settings">Manage email preferences</a></p>
+                        <p><a href="{self.app_url}/dashboard">Manage your keywords</a></p>
                     </div>
                 </div>
             </div>

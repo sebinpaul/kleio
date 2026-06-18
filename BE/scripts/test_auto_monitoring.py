@@ -6,10 +6,9 @@ import os
 import sys
 import django
 import time
-import requests
 
 # Setup Django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'kleio_backend.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'settings')
 django.setup()
 
 from core.services.auto_monitor_service import auto_monitor_service
@@ -92,18 +91,11 @@ def test_auto_monitoring():
     if status['active_streams']:
         print(f"   Active streams: {', '.join(status['active_streams'])}")
     
-    # Test API endpoint
-    print("\n6️⃣  Testing API endpoint...")
-    try:
-        response = requests.get('http://localhost:8000/api/auto-monitor/status/')
-        if response.status_code == 200:
-            data = response.json()
-            print(f"   API Status: {data['auto_monitoring']['is_running']}")
-            print(f"   API Monitored Keywords: {data['auto_monitoring']['monitored_keywords_count']}")
-        else:
-            print(f"   API Error: {response.status_code}")
-    except Exception as e:
-        print(f"   API Error: {e}")
+    # Re-check service status via Python API
+    print("\n6️⃣  Re-checking service status...")
+    status = auto_monitor_service.get_status()
+    print(f"   Service running: {status['is_running']}")
+    print(f"   Monitored keywords: {status['monitored_keywords_count']}")
     
     # Monitor for a few minutes
     print("\n7️⃣  Monitoring for 2 minutes...")

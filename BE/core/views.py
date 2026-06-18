@@ -1,480 +1,201 @@
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from rest_framework import status
-from django.http import JsonResponse
 from django.utils import timezone
-from .models import Keyword, Proxy, PlatformSource
-from .services.auto_monitor_service import auto_monitor_service
-from platforms.youtube.services.youtube_service import youtube_service
-from platforms.facebook.services.facebook_service import facebook_service
-from platforms.linkedin.services.linkedin_service import linkedin_service
-from platforms.quora.services.quora_service import quora_service
-from .enums import Platform
-import json
-import threading
+import logging
+from .models import Keyword
+from .validators import (
+    parse_enabled,
+    parse_keyword_text,
+    parse_platform,
+    parse_platform_filters,
+    validate_keyword_id,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _user_id(request) -> str:
+    return request.user.clerk_id
+
 
 @api_view(['GET'])
+@permission_classes([AllowAny])
+@throttle_classes([])
 def health_check(request):
     return Response({'status': 'ok'})
 
-@api_view(['GET'])
-def test_keywords(request):
-    """Test endpoint to check if keywords can be queried without user authentication"""
-    try:
-        print("DEBUG: Testing keywords query without user filter")
-        # Get all keywords (for testing only)
-        keywords = Keyword.objects.all()
-        count = keywords.count()
-        print(f"DEBUG: Total keywords in database: {count}")
-        
-        return Response({
-            'status': 'ok',
-            'total_keywords': count,
-            'message': 'Database connection and query working'
-        })
-    except Exception as e:
-        print(f"DEBUG: Test keywords error: {str(e)}")
-        import traceback
-        print(f"DEBUG: Traceback: {traceback.format_exc()}")
-        return Response({
-            'error': str(e),
-            'error_type': str(type(e))
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-@api_view(['GET', 'POST'])
-@permission_classes([AllowAny])
-def get_keywords(request, platform=None):
-    """Get all keywords for a user or create a new keyword"""
-    # Debug: Print request information
-    print(f"DEBUG: Request method: {request.method}")
-    print(f"DEBUG: Request headers: {dict(request.headers)}")
-    print(f"DEBUG: Request path: {request.path}")
-    
-    user_id = request.headers.get('X-User-ID')
-    print(f"DEBUG: User ID from header: {user_id}")
-    
-    if not user_id:
-        return Response({
-            'error': 'X-User-ID header is required',
-            'debug_info': {
-                'available_headers': list(request.headers.keys()),
-                'request_method': request.method,
-                'request_path': request.path
-            }
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    # Use platform from URL parameter or query parameter
-    platform = platform or request.GET.get('platform')
-    
-    if request.method == 'POST':
-        # Handle POST request (create keyword)
-        data = request.data
-        
-        # Use platform from URL parameter or request data
-        platform = platform or data.get('platform', Platform.REDDIT.value)
-        
-        # Validate required fields
-        if not data.get('keyword'):
-            return Response({'error': 'keyword is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Create new keyword
-        try:
-            # Handle platform-specific filters
-            platform_filters = data.get('platformSpecificFilters', [])
-            if isinstance(platform_filters, str):
-                # If it's a string, split by comma
-                platform_filters = [f.strip() for f in platform_filters.split(',') if f.strip()]
-            
-            keyword = Keyword(
-                user_id=user_id,
-                keyword=data.get('keyword'),
-                platform=platform,
-                platform_specific_filters=platform_filters,
-                is_active=data.get('enabled', True),
-                created_at=timezone.now(),
-                updated_at=timezone.now()
-            )
-            keyword.save()
-            
-            # Return the created keyword
-            return Response({
-                "id": str(keyword.id),
-                "keyword": keyword.keyword,
-                "userId": keyword.user_id,
-                "platform": keyword.platform,
-                "platformSpecificFilters": keyword.platform_specific_filters,
-                "enabled": keyword.is_active,
-                "createdAt": keyword.created_at.isoformat(),
-                "updatedAt": keyword.updated_at.isoformat()
-            }, status=status.HTTP_201_CREATED)
-            
-        except Exception as e:
-            print(f"DEBUG: POST error: {str(e)}")
-            print(f"DEBUG: Error type: {type(e)}")
-            import traceback
-            print(f"DEBUG: Traceback: {traceback.format_exc()}")
-            return Response({
-                'error': str(e),
-                'error_type': str(type(e)),
-                'debug_info': 'Check server logs for more details'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    else:
-        # Handle GET request (get keywords)
-        try:
-            print(f"DEBUG: Building query for user_id: {user_id}")
-            # Build query
-            query = {'user_id': user_id}
-            if platform:
-                query['platform'] = platform
-            
-            print(f"DEBUG: Final query: {query}")
-            
-            # Get keywords from database
-            keywords = Keyword.objects(**query).order_by('-created_at')
-            print(f"DEBUG: Found {keywords.count()} keywords")
-            
-            # Convert to response format
-            keywords_list = []
-            for keyword in keywords:
-                keywords_list.append({
-                    "id": str(keyword.id),
-                    "keyword": keyword.keyword,
-                    "userId": keyword.user_id,
-                    "platform": keyword.platform,
-                    "platformSpecificFilters": keyword.platform_specific_filters,
-                    "enabled": keyword.is_active,
-                    "createdAt": keyword.created_at.isoformat(),
-                    "updatedAt": keyword.updated_at.isoformat()
-                })
-            
-            print(f"DEBUG: Returning {len(keywords_list)} keywords")
-            return Response(keywords_list)
-            
-        except Exception as e:
-            print(f"DEBUG: GET error: {str(e)}")
-            print(f"DEBUG: Error type: {type(e)}")
-            import traceback
-            print(f"DEBUG: Traceback: {traceback.format_exc()}")
-            return Response({
-                'error': str(e),
-                'error_type': str(type(e)),
-                'debug_info': 'Check server logs for more details'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-@api_view(['PUT', 'DELETE'])
-@permission_classes([AllowAny])
-def update_keyword(request, keyword_id, platform=None):
-    """Update or delete a keyword"""
-    user_id = request.headers.get('X-User-ID')
-    if not user_id:
-        return Response({'error': 'X-User-ID header is required'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    try:
-        # Find the keyword
-        keyword = Keyword.objects(id=keyword_id, user_id=user_id).first()
-        if not keyword:
-            return Response({'error': 'Keyword not found'}, status=status.HTTP_404_NOT_FOUND)
-        
-        if request.method == 'DELETE':
-            # Handle DELETE request
-            keyword.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        
-        else:
-            # Handle PUT request (update keyword)
-            data = request.data
-            
-            # Update fields
-            if 'keyword' in data:
-                keyword.keyword = data['keyword']
-            if 'platform' in data:
-                keyword.platform = data['platform']
-            if 'platformSpecificFilters' in data:
-                platform_filters = data['platformSpecificFilters']
-                if isinstance(platform_filters, str):
-                    # If it's a string, split by comma
-                    platform_filters = [f.strip() for f in platform_filters.split(',') if f.strip()]
-                keyword.platform_specific_filters = platform_filters
-            if 'enabled' in data:
-                keyword.is_active = data['enabled']
-            
-            keyword.updated_at = timezone.now()
-            keyword.save()
-            
-            # Return the updated keyword
-            return Response({
-                "id": str(keyword.id),
-                "keyword": keyword.keyword,
-                "userId": keyword.user_id,
-                "platform": keyword.platform,
-                "platformSpecificFilters": keyword.platform_specific_filters,
-                "enabled": keyword.is_active,
-                "createdAt": keyword.created_at.isoformat(),
-                "updatedAt": keyword.updated_at.isoformat()
-            })
-            
-    except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-@api_view(['PATCH'])
-@permission_classes([AllowAny])
-def toggle_keyword(request, keyword_id, platform=None):
-    """Toggle keyword enabled status"""
-    user_id = request.headers.get('X-User-ID')
-    if not user_id:
-        return Response({'error': 'X-User-ID header is required'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    try:
-        # Find the keyword
-        keyword = Keyword.objects(id=keyword_id, user_id=user_id).first()
-        if not keyword:
-            return Response({'error': 'Keyword not found'}, status=status.HTTP_404_NOT_FOUND)
-        
-        # Toggle the status
-        keyword.is_active = not keyword.is_active
-        keyword.updated_at = timezone.now()
-        keyword.save()
-        
-        # Return the updated keyword
-        return Response({
-            "id": str(keyword.id),
-            "keyword": keyword.keyword,
-            "userId": keyword.user_id,
-            "platform": keyword.platform,
-            "platformSpecificFilters": keyword.platform_specific_filters,
-            "enabled": keyword.is_active,
-            "createdAt": keyword.created_at.isoformat(),
-            "updatedAt": keyword.updated_at.isoformat()
-        })
-        
-    except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def start_stream_monitoring(request):
-    """Start real-time stream monitoring for a user's keywords"""
-    user_id = request.headers.get('X-User-ID')
-    if not user_id:
-        return Response({'error': 'X-User-ID header is required'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    try:
-        # Get user's active keywords
-        keywords = Keyword.objects.filter(user_id=user_id, is_active=True)
-        
-        if not keywords:
-            return Response({
-                'error': 'No active keywords found for user',
-                'user_id': user_id
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        # Start stream monitoring in a separate thread
-        def start_monitoring():
-            realtime_stream_monitor.start_stream_monitoring(keywords)
-        
-        monitoring_thread = threading.Thread(target=start_monitoring, daemon=True)
-        monitoring_thread.start()
-        
-        return Response({
-            'status': 'success',
-            'message': 'Real-time stream monitoring started',
-            'keywords_count': keywords.count(),
-            'keywords': [
-                {
-                    'id': str(kw.id),
-                    'keyword': kw.keyword,
-                    'platform': kw.platform,
-                    'platformSpecificFilters': kw.platform_specific_filters
-                }
-                for kw in keywords
-            ]
-        })
-        
-    except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def stop_stream_monitoring(request):
-    """Stop real-time stream monitoring"""
-    try:
-        realtime_stream_monitor.stop_stream_monitoring()
-        
-        return Response({
-            'status': 'success',
-            'message': 'Real-time stream monitoring stopped'
-        })
-        
-    except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def get_stream_status(request):
-    """Get current stream monitoring status"""
-    try:
-        is_monitoring = len(realtime_stream_monitor.monitoring_threads) > 0
-        
-        return Response({
-            'is_monitoring': is_monitoring,
-            'active_threads': len(realtime_stream_monitor.monitoring_threads),
-            'monitored_subreddits': list(realtime_stream_monitor.monitoring_threads.keys())
-        })
-        
-    except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
-
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def get_auto_monitor_status(request):
-    """Get automatic monitoring service status"""
-    try:
-        status = auto_monitor_service.get_status()
-        
-        return Response({
-            'auto_monitoring': status,
-            'message': 'Automatic monitoring service status'
-        })
-        
-    except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
-
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def platform_health(request):
-    try:
-        data = {
-            'youtube': {
-                'is_monitoring': youtube_service.is_monitoring,
-                'instance_cooldowns': len(getattr(youtube_service, 'instance_cooldowns', {}) or {}),
-            },
-            'facebook': {
-                'is_monitoring': facebook_service.is_monitoring,
-                'pages_tracked': len(getattr(facebook_service, 'page_last_seen', {}) or {}),
-            },
-            'linkedin': {
-                'is_monitoring': linkedin_service.is_monitoring,
-                'sources_tracked': len(getattr(linkedin_service, 'source_last_seen', {}) or {}),
-            },
-            'quora': {
-                'is_monitoring': quora_service.is_monitoring,
-                'keywords_tracked': len(getattr(quora_service, 'last_seen_top_url', {}) or {}),
-            },
-        }
-        return Response(data)
-    except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-@api_view(['GET', 'POST'])
-@permission_classes([AllowAny])
-def proxies(request):
-    """List or create proxies"""
-    try:
-        if request.method == 'POST':
-            data = request.data if isinstance(request.data, dict) else {}
-            url = data.get('url')
-            is_active = bool(data.get('is_active', True))
-            if not url:
-                return Response({'error': 'url is required'}, status=status.HTTP_400_BAD_REQUEST)
-            proxy = Proxy(url=url, is_active=is_active)
-            proxy.save()
-            return Response(_proxy_to_dict(proxy), status=status.HTTP_201_CREATED)
-        # GET
-        items = Proxy.objects.all().order_by('-created_at')
-        data = [_proxy_to_dict(p) for p in items]
-        return Response(data)
-    except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-@api_view(['PUT', 'DELETE'])
-@permission_classes([AllowAny])
-def proxy_detail(request, proxy_id):
-    try:
-        proxy = Proxy.objects(id=proxy_id).first()
-        if not proxy:
-            return Response({'error': 'Proxy not found'}, status=status.HTTP_404_NOT_FOUND)
-        if request.method == 'DELETE':
-            proxy.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        # PUT
-        data = request.data if isinstance(request.data, dict) else {}
-        if 'url' in data:
-            proxy.url = data['url']
-        if 'is_active' in data:
-            proxy.is_active = bool(data['is_active'])
-        proxy.save()
-        return Response(_proxy_to_dict(proxy))
-    except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def proxies_upload_csv(request):
-    """Bulk add proxies via CSV: one proxy URL per line"""
-    try:
-        raw = request.body.decode('utf-8', errors='ignore')
-        lines = [l.strip() for l in raw.splitlines() if l.strip()]
-        created = 0
-        for line in lines:
-            if not Proxy.objects(url=line).first():
-                Proxy(url=line, is_active=True).save()
-                created += 1
-        return Response({'created': created, 'total': len(lines)})
-    except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-def _proxy_to_dict(proxy: Proxy):
+def _keyword_response(keyword: Keyword) -> dict:
     return {
-        'id': str(proxy.id),
-        'url': proxy.url,
-        'is_active': proxy.is_active,
-        'last_failed_at': proxy.last_failed_at.isoformat() if proxy.last_failed_at else None,
-        'cooldown_until': proxy.cooldown_until.isoformat() if proxy.cooldown_until else None,
-        'created_at': proxy.created_at.isoformat() if proxy.created_at else None,
-        'updated_at': proxy.updated_at.isoformat() if proxy.updated_at else None,
+        "id": str(keyword.id),
+        "keyword": keyword.keyword,
+        "userId": keyword.user_id,
+        "platform": keyword.platform,
+        "platformSpecificFilters": keyword.platform_specific_filters,
+        "enabled": keyword.is_active,
+        "createdAt": keyword.created_at.isoformat(),
+        "updatedAt": keyword.updated_at.isoformat(),
     }
 
 
-@api_view(['GET', 'PUT'])
-@permission_classes([AllowAny])
-def platform_sources(request, platform: str):
-    """Get or update per-user platform sources and config.
+@api_view(['GET', 'POST'])
+def get_keywords(request, platform=None):
+    """Get all keywords for a user or create a new keyword"""
+    user_id = _user_id(request)
+    list_platform = platform or request.GET.get('platform')
 
-    Body (PUT): { sources: string[] , config: object }
-    """
-    user_id = request.headers.get('X-User-ID')
-    if not user_id:
-        return Response({'error': 'X-User-ID header is required'}, status=status.HTTP_400_BAD_REQUEST)
+    if list_platform is not None:
+        _, error = parse_platform(list_platform)
+        if error:
+            return error
+
+    if request.method == 'POST':
+        data = request.data
+
+        keyword_text, error = parse_keyword_text(data.get('keyword'))
+        if error:
+            return error
+
+        platform_value, error = parse_platform(
+            data.get('platform'),
+            url_platform=platform,
+        )
+        if error:
+            return error
+
+        platform_filters, error = parse_platform_filters(data.get('platformSpecificFilters', []))
+        if error:
+            return error
+
+        enabled, error = parse_enabled(data.get('enabled', True))
+        if error:
+            return error
+
+        try:
+            keyword = Keyword(
+                user_id=user_id,
+                keyword=keyword_text,
+                platform=platform_value,
+                platform_specific_filters=platform_filters,
+                is_active=enabled,
+                created_at=timezone.now(),
+                updated_at=timezone.now(),
+            )
+            keyword.save()
+            return Response(_keyword_response(keyword), status=status.HTTP_201_CREATED)
+        except Exception:
+            logger.exception("Failed to create keyword for user %s", user_id)
+            return Response(
+                {'error': 'An internal error occurred'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
     try:
-        item = PlatformSource.objects(user_id=user_id, platform=platform).first()
-        if request.method == 'GET':
-            if not item:
-                return Response({'platform': platform, 'sources': [], 'config': {} })
-            return Response({
-                'id': str(item.id),
-                'platform': item.platform,
-                'sources': item.sources,
-                'config': item.config or {},
-                'updated_at': item.updated_at.isoformat() if item.updated_at else None,
-            })
-        # PUT
-        data = request.data if isinstance(request.data, dict) else {}
-        sources = data.get('sources') or []
-        config = data.get('config') or {}
-        if not item:
-            item = PlatformSource(user_id=user_id, platform=platform, sources=sources, config=config)
-        else:
-            item.sources = sources
-            item.config = config
-        item.save()
-        return Response({
-            'id': str(item.id),
-            'platform': item.platform,
-            'sources': item.sources,
-            'config': item.config or {},
-            'updated_at': item.updated_at.isoformat() if item.updated_at else None,
-        })
-    except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        query = {'user_id': user_id}
+        if list_platform:
+            query['platform'] = list_platform
+
+        keywords = Keyword.objects(**query).order_by('-created_at')
+        return Response([_keyword_response(keyword) for keyword in keywords])
+    except Exception:
+        logger.exception("Failed to list keywords for user %s", user_id)
+        return Response(
+            {'error': 'An internal error occurred'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(['PUT', 'DELETE'])
+def update_keyword(request, keyword_id, platform=None):
+    """Update or delete a keyword"""
+    user_id = _user_id(request)
+
+    error = validate_keyword_id(keyword_id)
+    if error:
+        return error
+
+    if platform is not None:
+        _, error = parse_platform(platform, url_platform=platform)
+        if error:
+            return error
+
+    try:
+        keyword = Keyword.objects(id=keyword_id, user_id=user_id).first()
+        if not keyword:
+            return Response({'error': 'Keyword not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.method == 'DELETE':
+            keyword.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        data = request.data
+
+        if 'keyword' in data:
+            keyword_text, error = parse_keyword_text(data['keyword'])
+            if error:
+                return error
+            keyword.keyword = keyword_text
+
+        if 'platform' in data:
+            platform_value, error = parse_platform(
+                data['platform'],
+                url_platform=platform,
+            )
+            if error:
+                return error
+            keyword.platform = platform_value
+
+        if 'platformSpecificFilters' in data:
+            platform_filters, error = parse_platform_filters(data['platformSpecificFilters'])
+            if error:
+                return error
+            keyword.platform_specific_filters = platform_filters
+
+        if 'enabled' in data:
+            enabled, error = parse_enabled(data['enabled'])
+            if error:
+                return error
+            keyword.is_active = enabled
+
+        keyword.updated_at = timezone.now()
+        keyword.save()
+        return Response(_keyword_response(keyword))
+    except Exception:
+        logger.exception("Failed to update/delete keyword %s for user %s", keyword_id, user_id)
+        return Response(
+            {'error': 'An internal error occurred'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(['PATCH'])
+def toggle_keyword(request, keyword_id, platform=None):
+    """Toggle keyword enabled status"""
+    user_id = _user_id(request)
+
+    error = validate_keyword_id(keyword_id)
+    if error:
+        return error
+
+    if platform is not None:
+        _, error = parse_platform(platform, url_platform=platform)
+        if error:
+            return error
+
+    try:
+        keyword = Keyword.objects(id=keyword_id, user_id=user_id).first()
+        if not keyword:
+            return Response({'error': 'Keyword not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        keyword.is_active = not keyword.is_active
+        keyword.updated_at = timezone.now()
+        keyword.save()
+        return Response(_keyword_response(keyword))
+    except Exception:
+        logger.exception("Failed to toggle keyword %s for user %s", keyword_id, user_id)
+        return Response(
+            {'error': 'An internal error occurred'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )

@@ -20,7 +20,6 @@ import random
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from core.models import Keyword, Mention
-from core.services.proxy_service import ProxyManager
 from core.enums import Platform, ContentType
 from core.services.matching_engine import GenericMatchingEngine
 from core.services.email_service import email_notification_service
@@ -73,7 +72,7 @@ def _get_chrome_version() -> Optional[int]:
     return None
 
 
-def _create_driver(headless: bool = True, user_data_dir: Optional[str] = None, proxy_url: Optional[str] = None) -> uc.Chrome:
+def _create_driver(headless: bool = True, user_data_dir: Optional[str] = None) -> uc.Chrome:
     options = uc.ChromeOptions()
     options.headless = headless
     options.add_argument("--no-sandbox")
@@ -89,8 +88,6 @@ def _create_driver(headless: bool = True, user_data_dir: Optional[str] = None, p
         options.add_argument("--headless=new")
     if user_data_dir:
         options.add_argument(f"--user-data-dir={user_data_dir}")
-    if proxy_url:
-        options.add_argument(f"--proxy-server={proxy_url}")
 
     chrome_version = _get_chrome_version()
     try:
@@ -145,7 +142,6 @@ class TwitterService:
         self.instance_cooldowns: Dict[str, float] = {}
         # Headless default
         self.headless = True
-        self.proxy_manager = ProxyManager()
         
     def start_monitoring(self):
         """Initialize monitoring start time"""
@@ -220,42 +216,18 @@ class TwitterService:
 
     def _ensure_nitter_driver(self):
         if self.nitter_driver is None:
-            # Headless by default
-            proxy = self.proxy_manager.for_chrome()
-            self.nitter_driver = _create_driver(headless=self.headless, user_data_dir=None, proxy_url=proxy)
-            if proxy:
-                logger.info(f"Using proxy: {proxy}")
+            self.nitter_driver = _create_driver(headless=self.headless, user_data_dir=None)
 
-    def _select_proxy(self) -> Optional[str]:
+    def _restart_driver(self):
         try:
-            if not self.proxies:
-                return None
-            # skip proxies in cooldown
-            attempts = 0
-            while attempts < len(self.proxies):
-                proxy = self.proxies[self.proxy_index % len(self.proxies)]
-                self.proxy_index += 1
-                until_ts = self.proxy_cooldowns.get(proxy, 0)
-                if time.time() >= until_ts:
-                    return proxy
-                attempts += 1
-            return None
-        except Exception:
-            return None
-
-    def _rotate_proxy_and_restart(self):
-        try:
-            proxy = self.proxy_manager.for_chrome()
-            try:
-                if self.nitter_driver:
+            if self.nitter_driver:
+                try:
                     self.nitter_driver.quit()
-            except Exception:
-                pass
-            self.nitter_driver = _create_driver(headless=self.headless, user_data_dir=None, proxy_url=proxy)
-            if proxy:
-                logger.info(f"Switched to proxy: {proxy}")
+                except Exception:
+                    pass
+            self.nitter_driver = _create_driver(headless=self.headless, user_data_dir=None)
         except Exception as e:
-            logger.warning(f"Failed to rotate proxy: {e}")
+            logger.warning(f"Failed to restart Twitter driver: {e}")
 
     def _cooldown_instance(self, instance: str, minutes: int = 2) -> None:
         try:
@@ -297,8 +269,8 @@ class TwitterService:
                     page_title = self.nitter_driver.title or ""
                     page_source = self.nitter_driver.page_source or ""
                     if ("Verifying your request" in page_title) or ("/check/" in page_source):
-                        logger.warning(f"Anti-bot page detected on {inst}; retrying with new proxy/direct before cooldown")
-                        # Retry once with a rotated proxy
+                        logger.warning(f"Anti-bot page detected on {inst}; retrying before cooldown")
+                        # Retry once after restarting the browser
                         if self._retry_instance_once(inst, url):
                             # Successful retry; proceed to parse items
                             pass
@@ -363,12 +335,12 @@ class TwitterService:
                 except TimeoutException as e:
                     logger.warning(f"Nitter instance timed out: {inst} (TimeoutException) on URL {url}")
                     self._cooldown_instance(inst, minutes=2)
-                    self._rotate_proxy_and_restart()
+                    self._restart_driver()
                     continue
                 except WebDriverException as e:
                     logger.warning(f"Nitter instance WebDriver error: {inst} ({e.__class__.__name__}: {e}) on URL {url}")
                     self._cooldown_instance(inst, minutes=2)
-                    self._rotate_proxy_and_restart()
+                    self._restart_driver()
                     continue
                 except Exception as e:
                     logger.warning(f"Nitter instance failed: {inst} ({e}) on URL {url}")
@@ -379,7 +351,7 @@ class TwitterService:
             for inst in self.nitter_instances:
                 url = _build_search_url(inst, keyword.keyword, include_replies=wants_replies, include_empty_range_params=True)
                 try:
-                    self._rotate_proxy_and_restart()
+                    self._restart_driver()
                     logger.info(f"Retrying (ignore cooldown) URL: {url}")
                     self.nitter_driver.get(url)
                     time.sleep(random.uniform(1.0, 2.0))
@@ -433,44 +405,9 @@ class TwitterService:
                     continue
         return results[:limit]
 
-    def _restart_with_proxy(self, proxy: Optional[str]):
-        try:
-            if self.nitter_driver:
-                try:
-                    self.nitter_driver.quit()
-                except Exception:
-                    pass
-            self.nitter_driver = _create_driver(headless=self.headless, user_data_dir=None, proxy_url=proxy)
-            if proxy:
-                logger.info(f"Switched to proxy: {proxy}")
-            else:
-                logger.info("Switched to direct connection (no proxy)")
-        except Exception as e:
-            logger.warning(f"Failed to restart driver with proxy {proxy}: {e}")
-
     def _retry_instance_once(self, inst: str, url: str) -> bool:
-        """Rotate proxy and try once; if still blocked, try direct once. Returns True if page no longer shows anti-bot."""
-        # Try with rotated proxy
         try:
-            proxy = self._select_proxy()
-            self._restart_with_proxy(proxy)
-            base_url = _normalize_instance_url(inst)
-            try:
-                self.nitter_driver.get(base_url)
-                time.sleep(random.uniform(1.0, 2.0))
-            except Exception:
-                pass
-            self.nitter_driver.get(url)
-            time.sleep(random.uniform(1.0, 2.0))
-            title = self.nitter_driver.title or ""
-            src = self.nitter_driver.page_source or ""
-            if ("Verifying your request" not in title) and ("/check/" not in src):
-                return True
-        except Exception:
-            pass
-        # Try direct (no proxy)
-        try:
-            self._restart_with_proxy(None)
+            self._restart_driver()
             base_url = _normalize_instance_url(inst)
             try:
                 self.nitter_driver.get(base_url)

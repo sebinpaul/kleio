@@ -6,13 +6,13 @@ import threading
 from datetime import datetime
 from typing import Dict, List, Optional
 
+import requests
 from django.utils import timezone
 
-from core.models import Keyword, Mention, PlatformSource
+from core.models import Keyword, Mention
 from core.enums import Platform, ContentType, MentionContentType
 from core.services.matching_engine import GenericMatchingEngine
 from core.services.email_service import email_notification_service
-from core.services.proxy_service import ProxyManager
 
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,6 @@ class FacebookService:
         self.check_interval = 300
         self.graph_base = "https://graph.facebook.com/v19.0"
         self.app_token = os.environ.get("KLEIO_FACEBOOK_APP_TOKEN", "").strip()
-        self.proxy_manager = ProxyManager()
         # Dedup and cursors
         self.seen_cache: Dict[str, float] = {}
         # Track last created_time ISO string per page-id
@@ -86,38 +85,14 @@ class FacebookService:
         return v
 
     def _tick(self, keywords: List[Keyword]):
-        # Reload proxies (UI-driven) each tick
-        try:
-            self.proxy_manager.reload()
-        except Exception:
-            pass
-        sess = self.proxy_manager.for_requests()
-        # Allow per-user override via settings config (first keyword owner wins)
+        sess = requests.Session()
         if not self.app_token:
-            for kw in keywords:
-                try:
-                    src = PlatformSource.objects(user_id=kw.user_id, platform=Platform.FACEBOOK.value).first()
-                    if src and src.config and isinstance(src.config.get('app_token'), str):
-                        self.app_token = str(src.config.get('app_token')).strip()
-                        break
-                except Exception:
-                    pass
-        if not self.app_token:
-            # Public scraping fallback using mobile pages
             self._tick_public_scrape(sess, keywords)
             return
-        # Graph API path
         for kw in keywords:
             if kw.platform not in [Platform.FACEBOOK.value, Platform.ALL.value]:
                 continue
-            # Prefer settings-backed sources
             pages = kw.platform_specific_filters or []
-            try:
-                src = PlatformSource.objects(user_id=kw.user_id, platform=Platform.FACEBOOK.value).first()
-                if src and src.sources:
-                    pages = src.sources
-            except Exception:
-                pass
             if not pages:
                 continue
             for raw in pages:
@@ -136,8 +111,6 @@ class FacebookService:
                 try:
                     resp = sess.get(url, params=params, timeout=30)
                     if resp.status_code != 200:
-                        if resp.status_code in (429, 503, 502):
-                            self.proxy_manager.cooldown(getattr(sess, 'proxies', {}).get('http'), minutes=2, reason="fb rate")
                         continue
                     data = resp.json()
                     items = data.get('data') or []
@@ -212,12 +185,6 @@ class FacebookService:
             if kw.platform not in [Platform.FACEBOOK.value, Platform.ALL.value]:
                 continue
             pages = kw.platform_specific_filters or []
-            try:
-                src = PlatformSource.objects(user_id=kw.user_id, platform=Platform.FACEBOOK.value).first()
-                if src and src.sources:
-                    pages = src.sources
-            except Exception:
-                pass
             if not pages:
                 continue
             for raw in pages:

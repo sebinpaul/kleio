@@ -1,8 +1,23 @@
-import { useUser } from "@clerk/nextjs";
+import { useAuth, useClerk } from "@clerk/nextjs";
+import { useCallback, useMemo } from "react";
 import { Platform, MatchMode, ContentType } from "./enums";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
+type GetToken = () => Promise<string | null>;
+
+type ApiAuthHandlers = {
+  getToken: GetToken;
+  onUnauthorized: () => Promise<void>;
+};
+
+export class ApiUnauthorizedError extends Error {
+  constructor() {
+    super("Session expired or unauthorized");
+    this.name = "ApiUnauthorizedError";
+  }
+}
 
 export interface KeywordRequest {
   keyword: string;
@@ -35,213 +50,153 @@ export interface Keyword {
   updatedAt: string;
 }
 
-export interface ProxyItem {
-  id: string;
-  url: string;
-  is_active: boolean;
-  last_failed_at?: string;
-  cooldown_until?: string;
-  created_at: string;
-  updated_at: string;
-}
-
 class ApiService {
-  private async getHeaders(userId?: string): Promise<HeadersInit> {
-    const headers: HeadersInit = {
-      "Content-Type": "application/json",
-    };
-
-    if (userId) {
-      headers["X-User-ID"] = userId;
+  private async getHeaders(auth: ApiAuthHandlers): Promise<HeadersInit> {
+    const token = await auth.getToken();
+    if (!token) {
+      await auth.onUnauthorized();
+      throw new ApiUnauthorizedError();
     }
 
-    return headers;
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    };
   }
 
-  // Platform sources/settings
-  async getPlatformSources(platform: string, userId: string): Promise<{platform: string; sources: string[]; config: Record<string, unknown>}> {
-    const response = await fetch(`${API_BASE_URL}/api/platforms/${platform}/sources`, {
-      method: "GET",
-      headers: await this.getHeaders(userId),
-    });
-    if (!response.ok) throw new Error("Failed to load platform sources");
+  private async request(
+    auth: ApiAuthHandlers,
+    input: RequestInfo | URL,
+    init?: RequestInit
+  ): Promise<Response> {
+    const response = await fetch(input, init);
+
+    if (response.status === 401) {
+      await auth.onUnauthorized();
+      throw new ApiUnauthorizedError();
+    }
+
+    return response;
+  }
+
+  private async parseJson<T>(response: Response, fallbackMessage: string): Promise<T> {
+    if (!response.ok) {
+      throw new Error(fallbackMessage);
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
     return response.json();
   }
 
-  async putPlatformSources(platform: string, payload: { sources: string[]; config?: Record<string, unknown> }, userId: string): Promise<{platform: string; sources: string[]; config: Record<string, unknown>}> {
-    const response = await fetch(`${API_BASE_URL}/api/platforms/${platform}/sources`, {
-      method: "PUT",
-      headers: await this.getHeaders(userId),
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) throw new Error("Failed to save platform sources");
-    return response.json();
-  }
-
-  // Proxies
-  async listProxies(): Promise<ProxyItem[]> {
-    const response = await fetch(`${API_BASE_URL}/api/proxies`, {
-      method: "GET",
-      headers: await this.getHeaders(),
-    });
-    if (!response.ok) throw new Error("Failed to load proxies");
-    return response.json();
-  }
-
-  async createProxy(url: string): Promise<ProxyItem> {
-    const response = await fetch(`${API_BASE_URL}/api/proxies`, {
-      method: "POST",
-      headers: await this.getHeaders(),
-      body: JSON.stringify({ url, is_active: true }),
-    });
-    if (!response.ok) throw new Error("Failed to create proxy");
-    return response.json();
-  }
-
-  async deleteProxy(id: string): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/api/proxies/${id}`, {
-      method: "DELETE",
-      headers: await this.getHeaders(),
-    });
-    if (!response.ok) throw new Error("Failed to delete proxy");
-  }
-
-  async uploadProxiesCsv(text: string): Promise<{ created: number; total: number }> {
-    const response = await fetch(`${API_BASE_URL}/api/proxies/upload-csv`, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain" },
-      body: text,
-    });
-    if (!response.ok) throw new Error("Failed to upload proxies");
-    return response.json();
-  }
-
-  // Platform-specific endpoints
-  async createKeyword(
-    request: KeywordRequest,
-    userId: string
-  ): Promise<Keyword> {
+  async createKeyword(request: KeywordRequest, auth: ApiAuthHandlers): Promise<Keyword> {
     const endpoint = request.platform
       ? `${API_BASE_URL}/api/platforms/${request.platform}/keywords`
       : `${API_BASE_URL}/api/keywords`;
 
-    const response = await fetch(endpoint, {
+    const response = await this.request(auth, endpoint, {
       method: "POST",
-      headers: await this.getHeaders(userId),
+      headers: await this.getHeaders(auth),
       body: JSON.stringify(request),
     });
 
-    if (!response.ok) {
-      throw new Error("Failed to create keyword");
-    }
-
-    return response.json();
+    return this.parseJson(response, "Failed to create keyword");
   }
 
-  async getUserKeywords(userId: string, platform?: string): Promise<Keyword[]> {
+  async getUserKeywords(auth: ApiAuthHandlers, platform?: string): Promise<Keyword[]> {
     const endpoint = platform
       ? `${API_BASE_URL}/api/platforms/${platform}/keywords`
       : `${API_BASE_URL}/api/keywords`;
 
-    const response = await fetch(endpoint, {
+    const response = await this.request(auth, endpoint, {
       method: "GET",
-      headers: await this.getHeaders(userId),
+      headers: await this.getHeaders(auth),
     });
 
-    if (!response.ok) {
-      console.log(response.json())
-      throw new Error("Failed to fetch keywords");
-    }
-
-    return response.json();
+    return this.parseJson(response, "Failed to fetch keywords");
   }
 
   async updateKeyword(
     id: string,
     request: KeywordRequest,
-    userId: string
+    auth: ApiAuthHandlers
   ): Promise<Keyword> {
     const endpoint = request.platform
       ? `${API_BASE_URL}/api/platforms/${request.platform}/keywords/${id}`
       : `${API_BASE_URL}/api/keywords/${id}`;
 
-    const response = await fetch(endpoint, {
+    const response = await this.request(auth, endpoint, {
       method: "PUT",
-      headers: await this.getHeaders(userId),
+      headers: await this.getHeaders(auth),
       body: JSON.stringify(request),
     });
 
-    if (!response.ok) {
-      throw new Error("Failed to update keyword");
-    }
-
-    return response.json();
+    return this.parseJson(response, "Failed to update keyword");
   }
 
   async deleteKeyword(
     id: string,
-    userId: string,
+    auth: ApiAuthHandlers,
     platform?: string
   ): Promise<void> {
     const endpoint = platform
       ? `${API_BASE_URL}/api/platforms/${platform}/keywords/${id}`
       : `${API_BASE_URL}/api/keywords/${id}`;
 
-    const response = await fetch(endpoint, {
+    const response = await this.request(auth, endpoint, {
       method: "DELETE",
-      headers: await this.getHeaders(userId),
+      headers: await this.getHeaders(auth),
     });
 
-    if (!response.ok) {
-      throw new Error("Failed to delete keyword");
-    }
+    await this.parseJson(response, "Failed to delete keyword");
   }
 
   async toggleKeyword(
     id: string,
-    userId: string,
+    auth: ApiAuthHandlers,
     platform?: string
   ): Promise<Keyword> {
     const endpoint = platform
       ? `${API_BASE_URL}/api/platforms/${platform}/keywords/${id}/toggle`
       : `${API_BASE_URL}/api/keywords/${id}/toggle`;
 
-    const response = await fetch(endpoint, {
+    const response = await this.request(auth, endpoint, {
       method: "PATCH",
-      headers: await this.getHeaders(userId),
+      headers: await this.getHeaders(auth),
     });
 
-    if (!response.ok) {
-      throw new Error("Failed to toggle keyword");
-    }
-
-    return response.json();
+    return this.parseJson(response, "Failed to toggle keyword");
   }
 }
 
 export const apiService = new ApiService();
 
-// Hook to use API with current user
 export function useApi() {
-  const { user } = useUser();
+  const { getToken, signOut } = useAuth();
+  const { redirectToSignIn } = useClerk();
+
+  const onUnauthorized = useCallback(async () => {
+    await signOut();
+    redirectToSignIn();
+  }, [signOut, redirectToSignIn]);
+
+  const auth = useMemo(
+    () => ({ getToken, onUnauthorized }),
+    [getToken, onUnauthorized]
+  );
 
   return {
-    // proxies
-    listProxies: () => apiService.listProxies(),
-    createProxy: (url: string) => apiService.createProxy(url),
-    deleteProxy: (id: string) => apiService.deleteProxy(id),
-    uploadProxiesCsv: (text: string) => apiService.uploadProxiesCsv(text),
-
-    // keywords
     createKeyword: (request: KeywordRequest) =>
-      apiService.createKeyword(request, user?.id || ""),
+      apiService.createKeyword(request, auth),
     getUserKeywords: (platform?: string) =>
-      apiService.getUserKeywords(user?.id || "", platform),
+      apiService.getUserKeywords(auth, platform),
     updateKeyword: (id: string, request: KeywordRequest) =>
-      apiService.updateKeyword(id, request, user?.id || ""),
+      apiService.updateKeyword(id, request, auth),
     deleteKeyword: (id: string, platform?: string) =>
-      apiService.deleteKeyword(id, user?.id || "", platform),
+      apiService.deleteKeyword(id, auth, platform),
     toggleKeyword: (id: string, platform?: string) =>
-      apiService.toggleKeyword(id, user?.id || "", platform),
+      apiService.toggleKeyword(id, auth, platform),
   };
 }

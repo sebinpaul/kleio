@@ -46,9 +46,11 @@ kleio/
 │   ├── settings.py
 │   ├── urls.py
 │   ├── requirements.txt
+│   ├── DEPLOYMENT.example.md   # Deployment checklist template (copy to DEPLOYMENT.local.md)
 │   ├── core/                     # Main Django app
 │   │   ├── models.py             # Keyword, Mention models (MongoEngine)
 │   │   ├── views.py              # REST API endpoints
+│   │   ├── authentication.py     # Clerk JWT authentication
 │   │   ├── serializers.py
 │   │   ├── enums.py              # Platform, MatchMode, ContentType enums
 │   │   ├── services/
@@ -56,8 +58,7 @@ kleio/
 │   │   │   ├── matching_engine.py
 │   │   │   ├── email_service.py
 │   │   │   ├── clerk_service.py
-│   │   │   ├── instant_notification_service.py
-│   │   │   └── proxy_service.py
+│   │   │   └── instant_notification_service.py
 │   │   └── management/commands/
 │   │       └── auto_monitor.py   # Background monitoring command
 │   └── platforms/                # Platform integrations
@@ -65,7 +66,7 @@ kleio/
 │       ├── hackernews/services/  # Algolia API
 │       ├── twitter/services/     # Scraping-based
 │       ├── youtube/services/     # Invidious API
-│       ├── linkedin/services/    # Scraping-based
+│       ├── linkedin/services/    # Voyager API (linkedin-api)
 │       ├── facebook/services/    # Public page scraping
 │       └── quora/services/       # Scraping-based
 │
@@ -122,9 +123,20 @@ pip install -r requirements.txt
 Create `BE/.env`:
 
 ```env
+# Django
+DEBUG=True
+DJANGO_SECRET_KEY=<generate-with-command-below>
+ALLOWED_HOSTS=localhost,127.0.0.1
+
 # MongoDB
 MONGODB_URI=mongodb://localhost:27017/kleio
 MONGODB_DATABASE=kleio
+
+# Clerk — API auth + email lookup
+CLERK_SECRET_KEY=
+# CLERK_JWT_KEY=                    # optional PEM public key (recommended for prod)
+# CLERK_AUTHORIZED_PARTIES=http://localhost:3000
+# CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
 # Reddit API (https://www.reddit.com/prefs/apps)
 REDDIT_CLIENT_ID=
@@ -135,8 +147,19 @@ REDDIT_USER_AGENT=KleioMentionTracker/1.0
 RESEND_API_KEY=
 RESEND_FROM_EMAIL=alerts@yourdomain.com
 
-# Clerk (https://clerk.com) — used for user email lookup
-CLERK_SECRET_KEY=
+# LinkedIn (use a dedicated account, not personal)
+KLEIO_LI_USER=your-linkedin-email@example.com
+KLEIO_LI_PASS=your-linkedin-password
+# Or use li_at cookie instead of credentials (copy from browser dev tools):
+# KLEIO_LINKEDIN_LI_AT=AQEDAx...
+# Poll interval in seconds (default 300):
+# KLEIO_LINKEDIN_CHECK_INTERVAL_SEC=300
+```
+
+Generate a Django secret key:
+
+```bash
+python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 ```
 
 Start the server:
@@ -149,7 +172,7 @@ python manage.py runserver
 Start background monitoring (separate terminal):
 
 ```bash
-python manage.py auto_monitor
+python manage.py auto_monitor start
 ```
 
 ### Frontend
@@ -163,9 +186,7 @@ Create `UI/.env`:
 
 ```env
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
-CLERK_SECRET_KEY=
 NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_AUTH_ENABLED=true
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ```
 
@@ -177,20 +198,32 @@ npm run dev
 
 The app runs at `http://localhost:3000`. The backend API runs at `http://localhost:8000`.
 
+## Deployment
+
+For production environment variables, Clerk/CORS alignment, and a pre-deploy checklist, copy and fill in:
+
+```bash
+cp BE/DEPLOYMENT.example.md BE/DEPLOYMENT.local.md
+```
+
+`DEPLOYMENT.local.md` is gitignored for your environment-specific URLs and notes.
+
 ## API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/keywords/` | List user's keywords (filtered by `?platform=`) |
-| POST | `/api/keywords/` | Create keyword |
-| PUT | `/api/keywords/{id}/` | Update keyword |
-| DELETE | `/api/keywords/{id}/` | Delete keyword |
-| PUT | `/api/keywords/{id}/toggle/` | Toggle keyword on/off |
-| GET | `/api/mentions/` | List user's mentions |
-| GET | `/api/reddit/search/?keyword=` | Test Reddit search |
-| GET | `/api/hackernews/search/?keyword=` | Test Hacker News search |
+All keyword endpoints require a Clerk JWT in the `Authorization` header. The frontend sends this automatically via `getToken()`.
 
-All endpoints require a Clerk JWT in the `Authorization` header. The frontend handles this automatically.
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/health` | No | Health check |
+| GET | `/api/keywords` | Yes | List current user's keywords |
+| POST | `/api/keywords` | Yes | Create keyword |
+| PUT | `/api/keywords/{id}` | Yes | Update keyword |
+| DELETE | `/api/keywords/{id}` | Yes | Delete keyword |
+| PATCH | `/api/keywords/{id}/toggle` | Yes | Toggle keyword on/off |
+
+Platform-scoped variants use `/api/platforms/{platform}/keywords` (same methods).
+
+Mentions are created by background monitoring and emailed via Resend; there is no public mentions API yet.
 
 ## Platforms
 
@@ -200,7 +233,7 @@ All endpoints require a Clerk JWT in the `Authorization` header. The frontend ha
 | Hacker News | Algolia public API | Active |
 | Twitter | Web scraping | Active |
 | YouTube | Invidious API | Active |
-| LinkedIn | Web scraping | Active |
+| LinkedIn | Voyager API (linkedin-api) | Active |
 | Facebook | Public page scraping | Active |
 | Quora | Web scraping | Active |
 

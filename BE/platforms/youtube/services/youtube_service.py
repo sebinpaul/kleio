@@ -19,7 +19,6 @@ from core.models import Keyword, Mention, MonitorCursor
 from core.enums import Platform, ContentType, MentionContentType
 from core.services.matching_engine import GenericMatchingEngine
 from core.services.email_service import email_notification_service
-from core.services.proxy_service import ProxyManager
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +47,6 @@ class YouTubeService:
         self.check_interval = 300
         self.instances = list(DEFAULT_INVIDIOUS_INSTANCES)
         self.instance_cooldowns: Dict[str, float] = {}
-        self.proxy_manager = ProxyManager()
         # TTL caches
         self.detail_cache: Dict[str, Tuple[float, Dict]] = {}
         self.detail_ttl_sec = 1800  # 30 min
@@ -117,11 +115,6 @@ class YouTubeService:
                 time.sleep(60)
 
     def _check_for_new_videos(self, keywords: List[Keyword]):
-        # Pick up any new proxies added via UI/API
-        try:
-            self.proxy_manager.reload()
-        except Exception:
-            pass
         for keyword in keywords:
             if keyword.platform not in [Platform.YOUTUBE.value, Platform.ALL.value]:
                 continue
@@ -284,11 +277,11 @@ class YouTubeService:
                     } for vid in ids[:limit]]
             except TimeoutException:
                 self._cooldown_instance(inst_norm, minutes=2)
-                self._rotate_proxy_and_restart()
+                self._restart_driver()
                 continue
             except WebDriverException as e:
                 self._cooldown_instance(inst_norm, minutes=2)
-                self._rotate_proxy_and_restart()
+                self._restart_driver()
                 continue
             except Exception:
                 self._cooldown_instance(inst_norm, minutes=1)
@@ -381,11 +374,11 @@ class YouTubeService:
                     return mapped, inst_norm
             except TimeoutException:
                 self._cooldown_instance(inst_norm, minutes=2)
-                self._rotate_proxy_and_restart()
+                self._restart_driver()
                 continue
             except WebDriverException as e:
                 self._cooldown_instance(inst_norm, minutes=2)
-                self._rotate_proxy_and_restart()
+                self._restart_driver()
                 continue
             except Exception:
                 self._cooldown_instance(inst_norm, minutes=1)
@@ -395,32 +388,18 @@ class YouTubeService:
     def _ensure_driver(self):
         if self.driver is not None:
             return
-        proxy = self.proxy_manager.for_chrome()
-        self.driver = self._create_driver(headless=self.headless, proxy_url=proxy)
-        if proxy:
-            logger.info(f"YouTube using proxy: {proxy}")
+        self.driver = self._create_driver(headless=self.headless)
 
-    def _restart_with_proxy(self, proxy: Optional[str]):
+    def _restart_driver(self):
         try:
             if self.driver:
                 try:
                     self.driver.quit()
                 except Exception:
                     pass
-            self.driver = self._create_driver(headless=self.headless, proxy_url=proxy)
-            if proxy:
-                logger.info(f"YouTube switched to proxy: {proxy}")
-            else:
-                logger.info("YouTube switched to direct connection")
+            self.driver = self._create_driver(headless=self.headless)
         except Exception as e:
             logger.warning(f"Failed to restart YouTube driver: {e}")
-
-    def _rotate_proxy_and_restart(self):
-        try:
-            proxy = self.proxy_manager.for_chrome()
-            self._restart_with_proxy(proxy)
-        except Exception as e:
-            logger.warning(f"Failed to rotate YouTube proxy: {e}")
 
     def _cooldown_instance(self, instance: str, minutes: int = 2) -> None:
         try:
@@ -430,27 +409,8 @@ class YouTubeService:
             pass
 
     def _retry_instance_once(self, inst: str, url: str) -> bool:
-        # Try rotated proxy
         try:
-            proxy = self.proxy_manager.for_chrome()
-            self._restart_with_proxy(proxy)
-            base_url = _normalize_instance_url(inst)
-            try:
-                self.driver.get(base_url)
-                time.sleep(random.uniform(1.0, 2.0))
-            except Exception:
-                pass
-            self.driver.get(url)
-            time.sleep(random.uniform(1.0, 2.0))
-            title = (self.driver.title or '').lower()
-            src = self.driver.page_source or ''
-            if 'too many requests' not in title and 'captcha' not in title and "i'm a teapot" not in src.lower():
-                return True
-        except Exception:
-            pass
-        # Try direct
-        try:
-            self._restart_with_proxy(None)
+            self._restart_driver()
             base_url = _normalize_instance_url(inst)
             try:
                 self.driver.get(base_url)
@@ -468,7 +428,7 @@ class YouTubeService:
         return False
 
     @staticmethod
-    def _create_driver(headless: bool = True, proxy_url: Optional[str] = None) -> uc.Chrome:
+    def _create_driver(headless: bool = True) -> uc.Chrome:
         options = uc.ChromeOptions()
         options.headless = headless
         options.add_argument("--no-sandbox")
@@ -482,8 +442,6 @@ class YouTubeService:
         )
         if headless:
             options.add_argument("--headless=new")
-        if proxy_url:
-            options.add_argument(f"--proxy-server={proxy_url}")
         try:
             driver = uc.Chrome(options=options)
         except Exception:

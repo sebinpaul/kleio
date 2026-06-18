@@ -9,11 +9,10 @@ from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from django.utils import timezone
 
-from core.models import Keyword, Mention, PlatformSource
+from core.models import Keyword, Mention
 from core.enums import Platform, ContentType, MentionContentType
 from core.services.matching_engine import GenericMatchingEngine
 from core.services.email_service import email_notification_service
-from core.services.proxy_service import ProxyManager
 
 
 logger = logging.getLogger(__name__)
@@ -26,7 +25,6 @@ class QuoraService:
         self.is_monitoring = False
         self.monitor_thread = None
         self.matching_engine = GenericMatchingEngine()
-        self.proxy_manager = ProxyManager()
         self.driver: Optional[uc.Chrome] = None
         self.headless = True
         self.check_interval = 300
@@ -65,23 +63,10 @@ class QuoraService:
                 time.sleep(60)
 
     def _tick(self, keywords: List[Keyword]):
-        try:
-            self.proxy_manager.reload()
-        except Exception:
-            pass
         for kw in keywords:
             if kw.platform not in [Platform.QUORA.value, Platform.ALL.value]:
                 continue
             self._process_keyword(kw)
-            # Optional topic sources from settings
-            try:
-                src = PlatformSource.objects(user_id=kw.user_id, platform=Platform.QUORA.value).first()
-                if src and src.sources:
-                    for topic_url in src.sources:
-                        if isinstance(topic_url, str) and 'quora.com/topic/' in topic_url:
-                            self._process_topic_feed(kw, topic_url)
-            except Exception:
-                pass
 
     def _process_keyword(self, kw: Keyword):
         query = kw.keyword.strip()
@@ -130,40 +115,32 @@ class QuoraService:
                 self._process_permalink(kw, u)
             self.last_seen_top_url[key] = links[0]
         except TimeoutException:
-            self._rotate_proxy()
+            self._restart_driver()
         except WebDriverException:
-            self._rotate_proxy()
+            self._restart_driver()
         except Exception:
             return
 
-    def _process_topic_feed(self, kw: Keyword, url: str):
+    def _ensure_driver(self):
+        if self.driver is not None:
+            return
+        self.driver = self._create_driver(headless=self.headless)
+
+    def _restart_driver(self):
         try:
-            base = "https://www.quora.com"
-            self.driver.get(url)
-            time.sleep(random.uniform(1.0, 2.0))
-            links: List[str] = []
-            for _ in range(2):
+            if self.driver:
                 try:
-                    anchors = self.driver.find_elements(By.TAG_NAME, 'a')
-                    for a in anchors:
-                        href = (a.get_attribute('href') or '').strip()
-                        if href.startswith(base) and ('/answer/' in href or '/What-' in href):
-                            if href not in links:
-                                links.append(href)
+                    self.driver.quit()
                 except Exception:
                     pass
-                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(random.uniform(0.6, 1.2))
-            for u in links[:10]:
-                self._process_permalink(kw, u)
+            self.driver = self._create_driver(headless=self.headless)
         except Exception:
-            return
+            pass
 
     def _process_permalink(self, kw: Keyword, url: str):
         try:
             self.driver.get(url)
             time.sleep(random.uniform(1.0, 2.0))
-            # og/meta
             title = ''
             desc = ''
             try:
@@ -188,7 +165,6 @@ class QuoraService:
                     matched = True
             if not matched:
                 return
-            # DB dedupe by URL
             try:
                 existing = Mention.objects.filter(source_url=url, keyword_id=str(kw.id)).first()
                 if existing:
@@ -220,26 +196,8 @@ class QuoraService:
         except Exception:
             return
 
-    def _ensure_driver(self):
-        if self.driver is not None:
-            return
-        proxy = self.proxy_manager.for_chrome()
-        self.driver = self._create_driver(headless=self.headless, proxy_url=proxy)
-
-    def _rotate_proxy(self):
-        try:
-            proxy = self.proxy_manager.for_chrome()
-            if self.driver:
-                try:
-                    self.driver.quit()
-                except Exception:
-                    pass
-            self.driver = self._create_driver(headless=self.headless, proxy_url=proxy)
-        except Exception:
-            pass
-
     @staticmethod
-    def _create_driver(headless: bool = True, proxy_url: Optional[str] = None) -> uc.Chrome:
+    def _create_driver(headless: bool = True) -> uc.Chrome:
         options = uc.ChromeOptions()
         options.headless = headless
         options.add_argument("--no-sandbox")
@@ -253,8 +211,6 @@ class QuoraService:
         )
         if headless:
             options.add_argument("--headless=new")
-        if proxy_url:
-            options.add_argument(f"--proxy-server={proxy_url}")
         try:
             driver = uc.Chrome(options=options)
         except Exception:

@@ -63,6 +63,7 @@ BE/poetry.lock
 # Local config
 BE/settings_local.py
 BE/local_settings.py
+BE/DEPLOYMENT.local.md
 
 # Celery
 BE/celerybeat-schedule

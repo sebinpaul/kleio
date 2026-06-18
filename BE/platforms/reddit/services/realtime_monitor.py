@@ -11,7 +11,6 @@ from .reddit_service import RedditService
 from core.services.matching_engine import GenericMatchingEngine, MatchResult
 from core.services.email_service import email_notification_service
 from core.models import Keyword, Mention
-from core.services.proxy_service import ProxyManager
 from core.enums import Platform, ContentType, MentionContentType
 
 logger = logging.getLogger(__name__)
@@ -25,7 +24,6 @@ class RealtimeStreamMonitor:
         self.monitoring_threads = []
         self.matching_engine = GenericMatchingEngine()
         self.monitoring_start_time = None
-        self.proxy_manager = ProxyManager()
     
     def start_stream_monitoring(self, keywords=None):
         """Start monitoring Reddit streams for keyword mentions"""
@@ -36,19 +34,10 @@ class RealtimeStreamMonitor:
             
             # Initialize Reddit client
             if not self.reddit:
-                requestor_kwargs = {}
-                try:
-                    sess = self.proxy_manager.for_requests()
-                    if getattr(sess, 'proxies', None):
-                        requestor_kwargs = { 'session': sess }
-                        logger.info(f"Reddit using proxy: {sess.proxies.get('http')}")
-                except Exception:
-                    requestor_kwargs = {}
                 self.reddit = praw.Reddit(
                     client_id=os.environ.get('REDDIT_CLIENT_ID'),
                     client_secret=os.environ.get('REDDIT_CLIENT_SECRET'),
                     user_agent=os.environ.get('REDDIT_USER_AGENT', 'KleioBot/1.0'),
-                    requestor_kwargs=requestor_kwargs if requestor_kwargs else None
                 )
             
             # Get keywords to monitor
@@ -354,22 +343,13 @@ class RealtimeStreamMonitor:
 
     def _rotate_reddit_client(self):
         try:
-            requestor_kwargs = {}
-            try:
-                sess = self.proxy_manager.for_requests()
-                if getattr(sess, 'proxies', None):
-                    requestor_kwargs = { 'session': sess }
-                    logger.info(f"Reddit switching proxy: {sess.proxies.get('http')}")
-            except Exception:
-                requestor_kwargs = {}
             self.reddit = praw.Reddit(
                 client_id=os.environ.get('REDDIT_CLIENT_ID'),
                 client_secret=os.environ.get('REDDIT_CLIENT_SECRET'),
                 user_agent=os.environ.get('REDDIT_USER_AGENT', 'KleioBot/1.0'),
-                requestor_kwargs=requestor_kwargs if requestor_kwargs else None
             )
         except Exception as e:
-            logger.warning(f"Failed to rotate Reddit client/proxy: {e}")
+            logger.warning(f"Failed to rotate Reddit client: {e}")
 
 # Global instance
 realtime_stream_monitor = RealtimeStreamMonitor() 

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useImperativeHandle, forwardRef } from "react";
-import { useApi, Keyword } from "@/lib/api";
+import { useApi, Keyword, ApiUnauthorizedError } from "@/lib/api";
 import KeywordModal from "./KeywordModal";
 import DeleteKeywordModal from "./DeleteKeywordModal";
 
@@ -85,6 +85,7 @@ const KeywordList = forwardRef<KeywordListRef, KeywordListProps>(({ platform, on
       setKeywords(data);
       setError(null);
     } catch (err) {
+      if (err instanceof ApiUnauthorizedError) return;
       console.error("Error loading keywords:", err);
       setError("Failed to load keywords");
     } finally {
@@ -98,6 +99,7 @@ const KeywordList = forwardRef<KeywordListRef, KeywordListProps>(({ platform, on
       await loadKeywords();
       onRefresh?.();
     } catch (err) {
+      if (err instanceof ApiUnauthorizedError) return;
       console.error("Error toggling keyword:", err);
     }
   };
@@ -123,6 +125,7 @@ const KeywordList = forwardRef<KeywordListRef, KeywordListProps>(({ platform, on
       setDeleteModalOpen(false);
       setDeletingKeyword(undefined);
     } catch (err) {
+      if (err instanceof ApiUnauthorizedError) return;
       console.error("Error deleting keyword:", err);
     } finally {
       setIsDeleting(false);

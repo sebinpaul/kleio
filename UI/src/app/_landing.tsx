@@ -309,8 +309,7 @@ const footerLinks: Record<string, string[]> = {
 function NavBar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const authEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED !== "false";
-  const signInHref = authEnabled ? "/sign-in" : "/dashboard";
+  const signInHref = "/sign-in";
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
