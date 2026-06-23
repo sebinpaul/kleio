@@ -1,6 +1,6 @@
 # Kleio
 
-Social mention monitoring platform. Track keywords across Reddit, Hacker News, Twitter, YouTube, LinkedIn, Facebook, and Quora. Get email alerts when mentions are detected.
+Social mention monitoring platform. Track keywords across Reddit, Hacker News, Twitter, and YouTube. Get email alerts when mentions are detected.
 
 ## Architecture
 
@@ -22,8 +22,6 @@ Social mention monitoring platform. Track keywords across Reddit, Hacker News, T
                                          │  Reddit (PRAW)       │
                                          │  Hacker News (Algolia)│
                                          │  Twitter · YouTube   │
-                                         │  LinkedIn · Facebook │
-                                         │  Quora               │
                                          └──────────┬──────────┘
                                                     │
                                          ┌──────────▼──────────┐
@@ -65,10 +63,7 @@ kleio/
 │       ├── reddit/services/      # PRAW + realtime stream
 │       ├── hackernews/services/  # Algolia API
 │       ├── twitter/services/     # Scraping-based
-│       ├── youtube/services/     # Invidious API
-│       ├── linkedin/services/    # Voyager API (linkedin-api)
-│       ├── facebook/services/    # Public page scraping
-│       └── quora/services/       # Scraping-based
+│       └── youtube/services/     # Invidious API
 │
 └── UI/                           # Next.js frontend
     └── src/
@@ -81,10 +76,7 @@ kleio/
         │   │   ├── reddit/       # Platform-specific keyword management
         │   │   ├── hackernews/
         │   │   ├── twitter/
-        │   │   ├── youtube/
-        │   │   ├── linkedin/
-        │   │   ├── facebook/
-        │   │   └── quora/
+        │   │   └── youtube/
         │   ├── sign-in/          # Clerk sign-in
         │   └── sign-up/          # Clerk sign-up
         ├── components/
@@ -146,14 +138,6 @@ REDDIT_USER_AGENT=KleioMentionTracker/1.0
 # Email (https://resend.com)
 RESEND_API_KEY=
 RESEND_FROM_EMAIL=alerts@yourdomain.com
-
-# LinkedIn (use a dedicated account, not personal)
-KLEIO_LI_USER=your-linkedin-email@example.com
-KLEIO_LI_PASS=your-linkedin-password
-# Or use li_at cookie instead of credentials (copy from browser dev tools):
-# KLEIO_LINKEDIN_LI_AT=AQEDAx...
-# Poll interval in seconds (default 300):
-# KLEIO_LINKEDIN_CHECK_INTERVAL_SEC=300
 ```
 
 Generate a Django secret key:
@@ -233,9 +217,6 @@ Mentions are created by background monitoring and emailed via Resend; there is n
 | Hacker News | Algolia public API | Active |
 | Twitter | Web scraping | Active |
 | YouTube | Invidious API | Active |
-| LinkedIn | Voyager API (linkedin-api) | Active |
-| Facebook | Public page scraping | Active |
-| Quora | Web scraping | Active |
 
 ## Keyword Configuration
 

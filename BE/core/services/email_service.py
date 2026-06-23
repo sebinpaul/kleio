@@ -334,8 +334,8 @@ class EmailNotificationService:
             Platform.REDDIT.value: "Reddit",
             Platform.HACKERNEWS.value: "Hacker News",
             Platform.TWITTER.value: "Twitter",
-            Platform.LINKEDIN.value: "LinkedIn",
-            Platform.ALL.value: "Multiple Platforms"  # Changed from Platform.BOTH.value
+            Platform.YOUTUBE.value: "YouTube",
+            Platform.ALL.value: "Multiple Platforms"
         }
         return platform_names.get(platform, platform.title())
     

@@ -6,7 +6,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://kleio.dev";
 export const metadata: Metadata = {
   title: "Kleio — Social Mention Monitoring for Reddit, Hacker News & More",
   description:
-    "Track keywords across Reddit, Hacker News, Twitter, LinkedIn, YouTube, Facebook and Quora. Get instant email alerts when your brand, product, or competitors are mentioned. Free plan available.",
+    "Track keywords across Reddit, Hacker News, Twitter, and YouTube. Get instant email alerts when your brand, product, or competitors are mentioned. Free plan available.",
   keywords: [
     "social listening",
     "mention monitoring",
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
     siteName: "Kleio",
     title: "Kleio — Know When Your Brand Gets Mentioned",
     description:
-      "Monitor Reddit, Hacker News, and 5 more platforms for keyword mentions. Instant email alerts with context and source links. Free to start.",
+      "Monitor Reddit, Hacker News, Twitter, and YouTube for keyword mentions. Instant email alerts with context and source links. Free to start.",
     images: [
       {
         url: `${SITE_URL}/og-image.png`,
@@ -103,7 +103,7 @@ function JsonLd() {
             name: "What platforms does Kleio currently monitor?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "Kleio monitors Reddit, Hacker News, Twitter, YouTube, LinkedIn, Facebook, and Quora in real time from a single dashboard.",
+              text: "Kleio monitors Reddit, Hacker News, Twitter, and YouTube in real time from a single dashboard.",
             },
           },
           {

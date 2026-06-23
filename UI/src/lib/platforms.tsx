@@ -54,39 +54,6 @@ export const platforms: PlatformConfig[] = [
     description: "Monitor video titles and descriptions",
     color: "text-red-600",
   },
-  {
-    id: PlatformEnum.LINKEDIN,
-    name: "LinkedIn",
-    icon: (
-      <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
-        <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
-      </svg>
-    ),
-    description: "Monitor professional conversations",
-    color: "text-blue-600",
-  },
-  {
-    id: PlatformEnum.FACEBOOK,
-    name: "Facebook",
-    icon: (
-      <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
-        <path d="M22.675 0h-21.35C.595 0 0 .594 0 1.326v21.348C0 23.406.595 24 1.326 24H12.82v-9.294H9.692V11.08h3.128V8.413c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.794.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.314h3.587l-.467 3.626h-3.12V24h6.116C23.406 24 24 23.406 24 22.674V1.326C24 .594 23.406 0 22.675 0z" />
-      </svg>
-    ),
-    description: "Monitor public Facebook Pages",
-    color: "text-blue-700",
-  },
-  {
-    id: PlatformEnum.QUORA,
-    name: "Quora",
-    icon: (
-      <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
-        <path d="M12 0C5.373 0 0 4.82 0 10.77 0 16.722 5.373 21.54 12 21.54c1.52 0 2.974-.243 4.313-.69l2.92 2.85c.208.205.548.06.548-.23v-4.87c2.961-1.957 4.219-4.778 4.219-7.83C24 4.82 18.627 0 12 0zm1.5 18.27c-3.584 0-6.49-2.87-6.49-6.407 0-3.538 2.906-6.406 6.49-6.406 3.583 0 6.49 2.868 6.49 6.406 0 3.537-2.907 6.407-6.49 6.407z" />
-      </svg>
-    ),
-    description: "Monitor questions, answers, and topics",
-    color: "text-rose-600",
-  },
 ];
 
 export function getPlatformById(id: string): PlatformConfig | undefined {
