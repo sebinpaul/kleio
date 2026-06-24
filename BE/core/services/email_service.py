@@ -87,6 +87,10 @@ class EmailNotificationService:
             if not keyword:
                 logger.error(f"Keyword not found for mention: {mention.id}")
                 return False
+
+            if not getattr(keyword, 'email_notifications', True):
+                logger.info(f"Email notifications disabled for keyword {keyword.id}")
+                return True
             
             # Prepare email content
             subject = self._generate_subject(mention, keyword)

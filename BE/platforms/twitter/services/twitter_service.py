@@ -21,7 +21,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
 
 from core.models import Keyword, Mention
 from core.enums import Platform, ContentType
-from core.services.matching_engine import GenericMatchingEngine
+from core.services.matching_engine import GenericMatchingEngine, MatchContext
 from core.services.email_service import email_notification_service
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
@@ -478,12 +478,13 @@ class TwitterService:
         """Check if tweet content matches keyword"""
         content = tweet.get('content', '')
         
-        # Check if keyword should monitor this content type
-        if not self.matching_engine.should_monitor_content(keyword, content_type):
-            return
-        
-        # Perform keyword matching
-        match_result = self.matching_engine.match_keyword(keyword, content, content_type)
+        context = MatchContext(
+            author=tweet.get('author', ''),
+            source_label=tweet.get('author', ''),
+        )
+        match_result = self.matching_engine.should_create_mention(
+            keyword, content, content_type, context
+        )
         
         if match_result:
             # Create mention
@@ -518,6 +519,7 @@ class TwitterService:
                 matched_text=match_result.matched_text,
                 match_position=match_result.position,
                 match_confidence=match_result.confidence,
+                detected_language=getattr(match_result, 'detected_language', '') or '',
                 mention_date=tweet['date'],
                 discovered_at=timezone.now()
             )

@@ -72,7 +72,9 @@ kleio/
         │   ├── _landing.tsx      # Landing page UI (client component)
         │   ├── dashboard/
         │   │   ├── layout.tsx    # Auth guard + sidebar layout
-        │   │   ├── page.tsx      # Overview — all platforms + all keywords
+        │   │   ├── page.tsx      # Overview — analytics, add keyword, recent mentions
+        │   │   ├── mentions/     # Full mentions feed with search & filters
+        │   │   ├── settings/   # User notification preferences
         │   │   ├── reddit/       # Platform-specific keyword management
         │   │   ├── hackernews/
         │   │   ├── twitter/
@@ -81,8 +83,9 @@ kleio/
         │   └── sign-up/          # Clerk sign-up
         ├── components/
         │   ├── PlatformDashboard.tsx  # Shared dashboard layout for all platforms
-        │   ├── KeywordList.tsx        # Keyword CRUD list (real API)
-        │   ├── KeywordModal.tsx       # Add/edit keyword form
+        │   ├── KeywordOverview.tsx    # Analytics table + summary cards
+        │   ├── MentionsFeed.tsx       # Paginated mentions with filters
+        │   ├── KeywordModal.tsx       # Add/edit keyword wizard
         │   ├── DeleteKeywordModal.tsx
         │   └── Sidebar.tsx
         └── lib/
@@ -205,9 +208,12 @@ All keyword endpoints require a Clerk JWT in the `Authorization` header. The fro
 | DELETE | `/api/keywords/{id}` | Yes | Delete keyword |
 | PATCH | `/api/keywords/{id}/toggle` | Yes | Toggle keyword on/off |
 
-Platform-scoped variants use `/api/platforms/{platform}/keywords` (same methods).
+| GET | `/api/keywords/analytics` | Yes | Per-keyword stats, sparklines, trends (`?platform=`) |
+| GET | `/api/mentions` | Yes | List mentions (`?status=`, `?q=`, `?keywordId=`, `?platform=`) |
+| PATCH | `/api/mentions/{id}` | Yes | Mark read / archive |
+| GET/PATCH | `/api/user/notification-settings` | Yes | User-level email notification toggle |
 
-Mentions are created by background monitoring and emailed via Resend; there is no public mentions API yet.
+Platform-scoped variants use `/api/platforms/{platform}/keywords` and `/api/platforms/{platform}/mentions` (same methods/filters).
 
 ## Platforms
 
@@ -226,15 +232,15 @@ Each keyword supports:
 - **Case sensitivity:** Case insensitive (default), case sensitive
 - **Content types:** Titles, Body, Comments
 - **Platform filters:** Subreddits, hashtags, channels, pages, etc.
-- **Notifications:** Email alerts via Resend
+- **Notifications:** Per-keyword email toggles; global email switch in Settings
 
 ## System Flow
 
 1. User signs up via Clerk and adds keywords through the dashboard
 2. `auto_monitor` management command polls each platform on a schedule
 3. New posts/comments are checked against user keywords via the matching engine
-4. Matches are saved as mentions and trigger email notifications via Resend
-5. Users view and manage keywords per-platform in the dashboard
+4. Matches are saved as mentions and trigger email notifications via Resend (when enabled)
+5. Users view keyword analytics, mentions, and manage keywords from the dashboard
 
 ## License
 

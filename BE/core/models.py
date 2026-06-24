@@ -15,7 +15,13 @@ class Keyword(Document):
     user_id = StringField(required=True, help_text="Django User ID")
     keyword = StringField(required=True, max_length=255, help_text="Keyword to monitor")
     platform = StringField(choices=PlatformChoices.get_choices(), default=PlatformChoices.ALL[0], max_length=20)
-    platform_specific_filters = ListField(StringField(), default=list, help_text="Platform-specific filters (e.g., subreddits, hashtags, companies)")
+    platform_specific_filters = ListField(StringField(), default=list, help_text="Platform-specific filters (e.g., subreddits, accounts, channels)")
+    excluded_keywords = ListField(StringField(), default=list, help_text="Keywords that suppress notifications when present alongside the main keyword")
+    excluded_subreddits = ListField(StringField(), default=list, help_text="Subreddits to exclude from monitoring")
+    included_users = ListField(StringField(), default=list, help_text="Only notify for posts/comments from these users (empty = all users)")
+    excluded_users = ListField(StringField(), default=list, help_text="Never notify for posts/comments from these users")
+    included_languages = ListField(StringField(), default=list, help_text="Only notify when content language matches (empty = all languages)")
+    excluded_languages = ListField(StringField(), default=list, help_text="Never notify when content language matches")
     
     # Enhanced matching criteria
     case_sensitive = BooleanField(default=False, help_text="Whether keyword matching is case sensitive")
@@ -30,6 +36,9 @@ class Keyword(Document):
         default=lambda: DEFAULT_CONTENT_TYPES.get(PlatformChoices.ALL[0], [ContentTypeChoices.TITLES[0], ContentTypeChoices.BODY[0], ContentTypeChoices.COMMENTS[0]]),
         help_text="Which content types to monitor"
     )
+
+    email_notifications = BooleanField(default=True, help_text="Send email alerts for mentions of this keyword")
+    slack_notifications = BooleanField(default=False, help_text="Send Slack alerts for mentions of this keyword")
     
     is_active = BooleanField(default=True, help_text="Whether this keyword is actively being monitored")
     created_at = DateTimeField(default=timezone.now)
@@ -82,6 +91,7 @@ class Mention(Document):
     matched_text = StringField(help_text="The exact text that matched the keyword")
     match_position = IntField(help_text="Position where keyword was found in content")
     match_confidence = FloatField(default=1.0, help_text="Confidence score of the match")
+    detected_language = StringField(max_length=10, default='', help_text="Detected ISO 639-1 language code")
     
     # Timestamps
     mention_date = DateTimeField(help_text="When the mention was created on the platform")
@@ -90,6 +100,8 @@ class Mention(Document):
     # Notification tracking
     email_sent = BooleanField(default=False, help_text="Whether email notification was sent")
     email_sent_at = DateTimeField(help_text="When email notification was sent")
+    is_read = BooleanField(default=False, help_text="Whether the user has read this mention")
+    is_archived = BooleanField(default=False, help_text="Whether the user archived this mention")
     
     # Platform-specific fields (generic)
     platform_item_id = StringField(help_text="Platform-specific item ID (e.g., story ID, post ID)")
@@ -104,6 +116,7 @@ class Mention(Document):
             ('source_url',),
             ('discovered_at',),
             ('platform', 'platform_item_id'),
+            ('user_id', 'is_archived', 'is_read'),
         ]
     }
     

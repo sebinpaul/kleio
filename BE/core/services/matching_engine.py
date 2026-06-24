@@ -1,22 +1,35 @@
 import re
 import logging
+from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
 from ..enums import (
     MatchMode, CaseSensitivity, ContentType, MentionContentType,
     PLATFORM_CONTENT_MAPPING
 )
 
+from .language_detection import detect_language
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class MatchContext:
+    author: str = ""
+    subreddit: str = ""
+    language: str = ""
+    source_label: str = ""
 
 
 class MatchResult:
     """Result of a keyword match"""
     
-    def __init__(self, matched: bool, matched_text: str = "", position: int = -1, confidence: float = 1.0):
+    def __init__(self, matched: bool, matched_text: str = "", position: int = -1, confidence: float = 1.0,
+                 detected_language: str = ""):
         self.matched = matched
         self.matched_text = matched_text
         self.position = position
         self.confidence = confidence
+        self.detected_language = detected_language
     
     def __bool__(self):
         return self.matched
@@ -208,4 +221,119 @@ class GenericMatchingEngine:
     
     def should_monitor_content(self, keyword_obj, content_type: str) -> bool:
         """Check if keyword should monitor this content type"""
-        return content_type in keyword_obj.content_types 
+        content_types = keyword_obj.content_types or []
+        return content_type in content_types
+
+    def _normalize_handle(self, value: str) -> str:
+        return (value or "").strip().lower().lstrip('@').lstrip('r/')
+
+    def _keyword_has_language_filters(self, keyword_obj) -> bool:
+        included = getattr(keyword_obj, 'included_languages', None) or []
+        excluded = getattr(keyword_obj, 'excluded_languages', None) or []
+        return bool(included or excluded)
+
+    def _resolve_context_language(
+        self,
+        keyword_obj,
+        content: str,
+        context: Optional[MatchContext],
+    ) -> MatchContext:
+        if context is None:
+            context = MatchContext()
+        if context.language or not self._keyword_has_language_filters(keyword_obj):
+            return context
+        if content:
+            context.language = detect_language(content)
+        return context
+
+    def _normalize_language(self, value: str) -> str:
+        return (value or "").strip().lower()[:2]
+
+    def _text_contains_term(self, content: str, term: str, case_sensitive: bool) -> bool:
+        if not content or not term:
+            return False
+        if case_sensitive:
+            return term in content
+        return term.lower() in content.lower()
+
+    def has_excluded_keywords(self, keyword_obj, content: str) -> bool:
+        excluded = getattr(keyword_obj, 'excluded_keywords', None) or []
+        if not excluded or not content:
+            return False
+        case_sensitive = bool(getattr(keyword_obj, 'case_sensitive', False))
+        return any(
+            self._text_contains_term(content, term, case_sensitive)
+            for term in excluded
+            if term
+        )
+
+    def passes_context_filters(self, keyword_obj, context: Optional[MatchContext]) -> bool:
+        if context is None:
+            return True
+
+        subreddit = self._normalize_handle(context.subreddit)
+        excluded_subreddits = getattr(keyword_obj, 'excluded_subreddits', None) or []
+        if subreddit and excluded_subreddits:
+            excluded = {self._normalize_handle(item) for item in excluded_subreddits}
+            if subreddit in excluded:
+                return False
+
+        author = self._normalize_handle(context.author)
+        included_users = getattr(keyword_obj, 'included_users', None) or []
+        if included_users:
+            allowed = {self._normalize_handle(item) for item in included_users}
+            if not author or author not in allowed:
+                return False
+
+        excluded_users = getattr(keyword_obj, 'excluded_users', None) or []
+        if author and excluded_users:
+            blocked = {self._normalize_handle(item) for item in excluded_users}
+            if author in blocked:
+                return False
+
+        language = self._normalize_language(context.language)
+        included_languages = getattr(keyword_obj, 'included_languages', None) or []
+        if included_languages:
+            if not language:
+                return False
+            allowed_langs = {self._normalize_language(item) for item in included_languages}
+            if language not in allowed_langs:
+                return False
+
+        excluded_languages = getattr(keyword_obj, 'excluded_languages', None) or []
+        if language and excluded_languages:
+            blocked_langs = {self._normalize_language(item) for item in excluded_languages}
+            if language in blocked_langs:
+                return False
+
+        platform_filters = getattr(keyword_obj, 'platform_specific_filters', None) or []
+        if platform_filters and context.source_label:
+            allowed_sources = {self._normalize_handle(item) for item in platform_filters}
+            source = self._normalize_handle(context.source_label)
+            if source not in allowed_sources:
+                return False
+
+        return True
+
+    def should_create_mention(
+        self,
+        keyword_obj,
+        content: str,
+        content_type: str,
+        context: Optional[MatchContext] = None,
+    ) -> MatchResult:
+        if not self.should_monitor_content(keyword_obj, content_type):
+            return MatchResult(matched=False)
+
+        context = self._resolve_context_language(keyword_obj, content, context)
+        if not self.passes_context_filters(keyword_obj, context):
+            return MatchResult(matched=False)
+
+        match_result = self.match_keyword(keyword_obj, content, content_type)
+        if not match_result:
+            return match_result
+        if context:
+            match_result.detected_language = context.language or ""
+        if self.has_excluded_keywords(keyword_obj, content):
+            return MatchResult(matched=False)
+        return match_result 

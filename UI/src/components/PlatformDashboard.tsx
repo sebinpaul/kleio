@@ -1,8 +1,10 @@
 "use client";
 
 import React, { ReactNode, useRef, useState } from "react";
+import Link from "next/link";
 import { Button } from "./ui/button";
-import KeywordList, { KeywordListRef } from "./KeywordList";
+import KeywordOverview, { KeywordOverviewRef } from "@/components/KeywordOverview";
+import MentionsFeed from "@/components/MentionsFeed";
 import KeywordModal from "./KeywordModal";
 import { Platform } from "@/lib/enums";
 
@@ -18,11 +20,11 @@ interface PlatformDashboardProps {
 
 export default function PlatformDashboard({ platform }: PlatformDashboardProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const keywordListRef = useRef<KeywordListRef>(null);
+  const overviewRef = useRef<KeywordOverviewRef>(null);
 
   const handleKeywordSaved = () => {
     setIsAddModalOpen(false);
-    keywordListRef.current?.refresh();
+    overviewRef.current?.refresh();
   };
 
   return (
@@ -45,9 +47,9 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">Keywords</h2>
+              <h2 className="text-lg font-semibold text-slate-900">Keyword analytics</h2>
               <p className="text-sm text-slate-500 mt-0.5">
-                Manage your {platform.name} monitoring keywords
+                Mentions over time, last activity, and status for your {platform.name} keywords
               </p>
             </div>
             <Button
@@ -62,10 +64,35 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
           </div>
 
           <div className="p-6">
-            <KeywordList
-              ref={keywordListRef}
-              onRefresh={() => {}}
+            <KeywordOverview
+              ref={overviewRef}
               platform={platform.id}
+              onAddKeyword={() => setIsAddModalOpen(true)}
+            />
+          </div>
+        </div>
+
+        <div className="mt-8 bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Recent mentions</h2>
+              <p className="text-sm text-slate-500 mt-0.5">
+                Latest {platform.name} matches for your keywords
+              </p>
+            </div>
+            <Link
+              href={`/dashboard/mentions?platform=${platform.id}`}
+              className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+            >
+              View all
+            </Link>
+          </div>
+          <div className="p-6">
+            <MentionsFeed
+              platform={platform.id}
+              compact
+              pageSize={8}
+              viewAllHref={`/dashboard/mentions?platform=${platform.id}`}
             />
           </div>
         </div>

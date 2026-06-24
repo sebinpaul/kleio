@@ -2,7 +2,7 @@ from bson.objectid import ObjectId
 from rest_framework.response import Response
 from rest_framework import status
 
-from .enums import Platform
+from .enums import Platform, MatchMode, ContentType
 
 MAX_KEYWORD_LENGTH = 255
 MAX_FILTER_COUNT = 50
@@ -51,30 +51,81 @@ def parse_platform(raw, *, url_platform: str | None = None) -> tuple[str | None,
     return platform, None
 
 
-def parse_platform_filters(raw) -> tuple[list[str] | None, Response | None]:
+def parse_string_list(raw, field_name: str) -> tuple[list[str] | None, Response | None]:
     if raw is None:
         return [], None
     if isinstance(raw, str):
         raw = [part.strip() for part in raw.split(',') if part.strip()]
     if not isinstance(raw, list):
-        return None, _bad_request('platformSpecificFilters must be a list of strings')
+        return None, _bad_request(f'{field_name} must be a list of strings')
 
-    filters: list[str] = []
+    values: list[str] = []
     for item in raw:
         if not isinstance(item, str):
-            return None, _bad_request('platformSpecificFilters must be a list of strings')
+            return None, _bad_request(f'{field_name} must be a list of strings')
         value = item.strip()
         if not value:
             continue
         if len(value) > MAX_FILTER_ITEM_LENGTH:
             return None, _bad_request(
-                f'each platformSpecificFilters entry must be at most {MAX_FILTER_ITEM_LENGTH} characters'
+                f'each {field_name} entry must be at most {MAX_FILTER_ITEM_LENGTH} characters'
             )
-        filters.append(value)
+        values.append(value)
 
-    if len(filters) > MAX_FILTER_COUNT:
-        return None, _bad_request(f'platformSpecificFilters supports at most {MAX_FILTER_COUNT} entries')
-    return filters, None
+    if len(values) > MAX_FILTER_COUNT:
+        return None, _bad_request(f'{field_name} supports at most {MAX_FILTER_COUNT} entries')
+    return values, None
+
+
+def parse_platform_filters(raw) -> tuple[list[str] | None, Response | None]:
+    return parse_string_list(raw, 'platformSpecificFilters')
+
+
+def parse_case_sensitive(raw, *, default: bool = False) -> tuple[bool | None, Response | None]:
+    if raw is None:
+        return default, None
+    if not isinstance(raw, bool):
+        return None, _bad_request('caseSensitive must be a boolean')
+    return raw, None
+
+
+def parse_match_mode(raw, *, default: str | None = None) -> tuple[str | None, Response | None]:
+    from .enums import MatchMode
+    if raw is None:
+        return default or MatchMode.CONTAINS.value, None
+    if not isinstance(raw, str):
+        return None, _bad_request('matchMode must be a string')
+    valid_modes = {mode.value for mode in MatchMode}
+    if raw not in valid_modes:
+        return None, _bad_request(f'matchMode must be one of: {", ".join(sorted(valid_modes))}')
+    return raw, None
+
+
+def parse_content_types(raw, *, platform: str | None = None) -> tuple[list[str] | None, Response | None]:
+    from .enums import ContentType, DEFAULT_CONTENT_TYPES
+    if raw is None:
+        default_platform = platform or Platform.REDDIT.value
+        return DEFAULT_CONTENT_TYPES.get(default_platform, [
+            ContentType.TITLES.value,
+            ContentType.BODY.value,
+            ContentType.COMMENTS.value,
+        ]), None
+    if not isinstance(raw, list):
+        return None, _bad_request('contentTypes must be a list of strings')
+
+    valid_types = {ct.value for ct in ContentType}
+    values: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            return None, _bad_request('contentTypes must be a list of strings')
+        if item not in valid_types:
+            return None, _bad_request(f'contentTypes must be one of: {", ".join(sorted(valid_types))}')
+        if item not in values:
+            values.append(item)
+
+    if not values:
+        return None, _bad_request('contentTypes must include at least one value')
+    return values, None
 
 
 def parse_enabled(raw, *, default: bool = True) -> tuple[bool | None, Response | None]:

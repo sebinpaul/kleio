@@ -2,6 +2,7 @@
 
 import { useUser } from "@clerk/nextjs";
 import Sidebar from "../../components/Sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 export default function DashboardLayout({
   children,
@@ -31,11 +32,13 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Sidebar />
-      <div className="ml-64">
-        <main className="p-6">{children}</main>
+    <TooltipProvider>
+      <div className="min-h-screen bg-background">
+        <Sidebar />
+        <div className="ml-64">
+          <main className="p-6">{children}</main>
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }

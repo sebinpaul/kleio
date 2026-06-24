@@ -8,7 +8,7 @@ import praw
 from praw.models import Subreddit
 from django.utils import timezone
 from .reddit_service import RedditService
-from core.services.matching_engine import GenericMatchingEngine, MatchResult
+from core.services.matching_engine import GenericMatchingEngine, MatchResult, MatchContext
 from core.services.email_service import email_notification_service
 from core.models import Keyword, Mention
 from core.enums import Platform, ContentType, MentionContentType
@@ -171,10 +171,13 @@ class RealtimeStreamMonitor:
                 
                 # Check each keyword against this content
                 for keyword in keywords:
-                    if not self.matching_engine.should_monitor_content(keyword, content_type):
-                        continue
-                    
-                    match_result = self.matching_engine.match_keyword(keyword, content, content_type)
+                    context = MatchContext(
+                        author=str(submission.author) if submission.author else '',
+                        subreddit=submission.subreddit.display_name,
+                    )
+                    match_result = self.matching_engine.should_create_mention(
+                        keyword, content, content_type, context
+                    )
                     
                     if match_result:
                         # Determine mention content type
@@ -211,16 +214,13 @@ class RealtimeStreamMonitor:
             logger.debug(f"Keywords to check: {[kw.keyword for kw in keywords]}")
             
             for keyword in keywords:
-                # Check if keyword should monitor comments
-                should_monitor = self.matching_engine.should_monitor_content(keyword, ContentType.COMMENTS.value)
-                logger.debug(f"Keyword '{keyword.keyword}' should monitor comments: {should_monitor}")
-                logger.debug(f"Keyword content types: {keyword.content_types}")
-                
-                if not should_monitor:
-                    logger.debug(f"Skipping keyword '{keyword.keyword}' - not monitoring comments")
-                    continue
-                
-                match_result = self.matching_engine.match_keyword(keyword, content, ContentType.COMMENTS.value)
+                context = MatchContext(
+                    author=str(comment.author) if comment.author else '',
+                    subreddit=comment.subreddit.display_name,
+                )
+                match_result = self.matching_engine.should_create_mention(
+                    keyword, content, ContentType.COMMENTS.value, context
+                )
                 
                 if match_result:
                     logger.info(f"🎯 Match found! Keyword: '{keyword.keyword}' in comment")
@@ -284,6 +284,7 @@ class RealtimeStreamMonitor:
                 matched_text=match_result.matched_text,
                 match_position=match_result.position,
                 match_confidence=match_result.confidence,
+                detected_language=getattr(match_result, 'detected_language', '') or '',
                 mention_date=datetime.fromtimestamp(submission.created_utc)
             )
             
@@ -321,6 +322,7 @@ class RealtimeStreamMonitor:
                 matched_text=match_result.matched_text,
                 match_position=match_result.position,
                 match_confidence=match_result.confidence,
+                detected_language=getattr(match_result, 'detected_language', '') or '',
                 mention_date=datetime.fromtimestamp(comment.created_utc)
             )
             

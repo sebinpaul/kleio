@@ -183,6 +183,6 @@ DEFAULT_CONTENT_TYPES = {
     Platform.REDDIT.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
     Platform.HACKERNEWS.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
     Platform.TWITTER.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
-    Platform.YOUTUBE.value: [ContentType.TITLES.value, ContentType.BODY.value],
+    Platform.YOUTUBE.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
     Platform.ALL.value: [ContentType.TITLES.value, ContentType.BODY.value, ContentType.COMMENTS.value],
 } 

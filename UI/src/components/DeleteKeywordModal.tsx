@@ -29,19 +29,19 @@ export default function DeleteKeywordModal({
 }: DeleteKeywordModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md bg-white shadow-xl border border-slate-200">
         <DialogHeader>
-          <DialogTitle>Delete Keyword</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-slate-900">Delete Keyword</DialogTitle>
+          <DialogDescription className="text-slate-600">
             Are you sure you want to delete the keyword{" "}
-            <span className="font-semibold text-foreground">
+            <span className="font-semibold text-slate-900">
               &ldquo;{keyword?.keyword}&rdquo;
             </span>
             ? This action cannot be undone.
           </DialogDescription>
         </DialogHeader>
 
-        <DialogFooter className="flex gap-2 sm:gap-0">
+        <DialogFooter className="flex gap-3 sm:justify-end">
           <Button
             type="button"
             variant="outline"

@@ -8,7 +8,7 @@ from typing import List, Dict, Optional, Any
 from django.utils import timezone
 from core.models import Keyword, Mention
 from core.enums import Platform, ContentType, MentionContentType
-from core.services.matching_engine import GenericMatchingEngine, MatchResult
+from core.services.matching_engine import GenericMatchingEngine, MatchResult, MatchContext
 from core.services.email_service import email_notification_service
 
 logger = logging.getLogger(__name__)
@@ -214,7 +214,10 @@ class HackerNewsService:
                 continue
             
             # Check title
-            match_result = self.matching_engine.match_keyword(keyword, story_title, ContentType.TITLES.value)
+            context = MatchContext(author=story_author)
+            match_result = self.matching_engine.should_create_mention(
+                keyword, story_title, ContentType.TITLES.value, context
+            )
             
             if match_result:
                 mention = self._create_mention_from_story(keyword, story, match_result, MentionContentType.TITLE.value)
@@ -225,7 +228,10 @@ class HackerNewsService:
             # Check URL/body if keyword monitors body content
             if self._should_process_keyword(keyword, ContentType.BODY.value):
                 if story_url:
-                    match_result = self.matching_engine.match_keyword(keyword, story_url, ContentType.BODY.value)
+                    context = MatchContext(author=story_author)
+                    match_result = self.matching_engine.should_create_mention(
+                        keyword, story_url, ContentType.BODY.value, context
+                    )
                     if match_result:
                         mention = self._create_mention_from_story(keyword, story, match_result, MentionContentType.BODY.value)
                         if mention:
@@ -244,8 +250,10 @@ class HackerNewsService:
         for keyword in keywords:
             if not self._should_process_keyword(keyword, ContentType.COMMENTS.value):
                 continue
-            print(keyword, comment_text)
-            match_result = self.matching_engine.match_keyword(keyword, comment_text, ContentType.COMMENTS.value)
+            context = MatchContext(author=comment_author)
+            match_result = self.matching_engine.should_create_mention(
+                keyword, comment_text, ContentType.COMMENTS.value, context
+            )
             
             if match_result:
                 mention = self._create_mention_from_comment(keyword, comment, match_result)
@@ -299,6 +307,7 @@ class HackerNewsService:
                 matched_text=match_result.matched_text,
                 match_position=match_result.position,
                 match_confidence=match_result.confidence,
+                detected_language=getattr(match_result, 'detected_language', '') or '',
                 mention_date=datetime.fromtimestamp(story.get("time", time.time())),
                 discovered_at=timezone.now()
             )
@@ -339,6 +348,7 @@ class HackerNewsService:
                 matched_text=match_result.matched_text,
                 match_position=match_result.position,
                 match_confidence=match_result.confidence,
+                detected_language=getattr(match_result, 'detected_language', '') or '',
                 mention_date=datetime.fromtimestamp(comment.get("time", time.time())),
                 discovered_at=timezone.now()
             )

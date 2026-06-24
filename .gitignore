@@ -4,14 +4,18 @@
 .DS_Store
 Thumbs.db
 
-# IDE/editor configs
+# IDE / editor
 .vscode/
 .idea/
+.cursor/
 
-# Common env files
+# Secrets & local env (never commit)
 *.env
 *.env.*
 !.env.example
+
+# SQLite (Django internals only — app data lives in MongoDB)
+*.sqlite3
 
 # ========= Backend (Django in BE/) =========
 
@@ -25,30 +29,28 @@ BE/.venv/
 BE/env/
 BE/ENV/
 
-# Django-specific
+# Django runtime artifacts
 BE/*.log
 BE/*.pot
 BE/*.pyc
-BE/*.sqlite3
-BE/db.sqlite3
 BE/media/
 BE/staticfiles/
 BE/static_root/
 BE/static_cdn/
 BE/*.mo
 
-# Migrations (optional: remove if you want to version control them)
+# Migrations (MongoEngine project — keep only __init__.py)
 BE/**/migrations/*.py
 !BE/**/migrations/__init__.py
 
-# Testing / Coverage
+# Testing / coverage
 BE/htmlcov/
 BE/.coverage
 BE/.pytest_cache/
 BE/.cache/
 BE/test-results/
 
-# MyPy / Build / Tooling
+# Build / tooling
 BE/.mypy_cache/
 BE/*.manifest
 BE/*.spec
@@ -56,11 +58,11 @@ BE/dist/
 BE/build/
 BE/*.egg-info/
 
-# Pipenv / Poetry
+# Pipenv / Poetry (project uses requirements.txt)
 BE/Pipfile.lock
 BE/poetry.lock
 
-# Local config
+# Local overrides
 BE/settings_local.py
 BE/local_settings.py
 BE/DEPLOYMENT.local.md
@@ -69,15 +71,12 @@ BE/DEPLOYMENT.local.md
 BE/celerybeat-schedule
 BE/celerybeat.pid
 
-#chrome_data
+# Browser automation profile data
 BE/chrome_data/
 
 # ========= Frontend (Next.js in UI/) =========
 
-# Node modules
 UI/node_modules/
-
-# Build output
 UI/.next/
 UI/out/
 
@@ -87,28 +86,21 @@ UI/yarn-debug.log*
 UI/yarn-error.log*
 UI/pnpm-debug.log*
 
-# dotenv
-UI/.env*
-!UI/.env.example
-
-# Cache
+# Tooling cache
 UI/.eslintcache
 UI/.turbo/
 UI/.parcel-cache/
 UI/.cache/
+UI/tsconfig.tsbuildinfo
+UI/*.tsbuildinfo
 
-# Deployment
+# Deployment platforms
 UI/.vercel/
 UI/.netlify/
+
+# Clerk local config (can include secrets)
+UI/.clerk/
 
 # Testing
 UI/coverage/
 UI/junit.xml
-
-# Lock files (optional - pick one per team convention)
-UI/package-lock.json
-UI/yarn.lock
-UI/pnpm-lock.yaml
-
-# Cursor specific
-UI/.cursor

@@ -32,6 +32,10 @@ clerk-backend-api>=6.0.0
 
 # Date/time handling
 python-dateutil>=2.8.2
+langdetect>=1.0.9
 
 # Logging and utilities
 colorama>=0.4.6
+
+# Testing
+mongomock>=4.1.2

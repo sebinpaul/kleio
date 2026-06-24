@@ -136,8 +136,11 @@ def connect_mongodb():
             print("MONGODB_URI not set - using SQLite only")
             connect_mongodb._connected = True
 
-# Initialize MongoDB connection
-connect_mongodb()
+import sys
+
+# Initialize MongoDB connection (skip during `manage.py test` — tests use mongomock)
+if not (len(sys.argv) > 1 and sys.argv[1] == "test"):
+    connect_mongodb()
 
 # Keep SQLite for Django's built-in tables (admin, auth, etc.)
 DATABASES = {

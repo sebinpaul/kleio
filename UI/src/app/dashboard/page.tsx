@@ -1,24 +1,37 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import KeywordModal from "@/components/KeywordModal";
-import KeywordList from "@/components/KeywordList";
 import { platforms } from "@/lib/platforms";
+import KeywordOverview, { KeywordOverviewRef } from "@/components/KeywordOverview";
+import MentionsFeed from "@/components/MentionsFeed";
+import KeywordModal from "@/components/KeywordModal";
+import AddKeywordPlatformPicker from "@/components/AddKeywordPlatformPicker";
+import { Platform } from "@/lib/enums";
+import { Button } from "@/components/ui/button";
 
 export default function Dashboard() {
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const overviewRef = useRef<KeywordOverviewRef>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedPlatform, setSelectedPlatform] = useState<Platform | undefined>();
+
+  const handleKeywordSaved = () => {
+    setModalOpen(false);
+    setSelectedPlatform(undefined);
+    overviewRef.current?.refresh();
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20">
       <div className="px-8 py-6 border-b border-slate-200/60 bg-white/60 backdrop-blur-sm">
         <h1 className="text-2xl font-semibold text-slate-900">Overview</h1>
-        <p className="text-sm text-slate-500 mt-0.5">All platforms at a glance</p>
+        <p className="text-sm text-slate-500 mt-0.5">
+          All keywords and mention activity across platforms
+        </p>
       </div>
 
       <div className="px-8 py-8 space-y-8">
-        {/* Platform Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {platforms.map((p) => (
             <Link
@@ -37,37 +50,63 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* All-platform Keywords */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">All Keywords</h2>
+              <h2 className="text-lg font-semibold text-slate-900">Keyword analytics</h2>
               <p className="text-sm text-slate-500 mt-0.5">
-                Keywords across all platforms
+                Mentions over time, last activity, and platform for each keyword
               </p>
             </div>
             <Button
-              onClick={() => setIsAddModalOpen(true)}
+              onClick={() => setPickerOpen(true)}
               className="gradient-button px-5 py-2.5 text-sm font-medium"
             >
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
               Add Keyword
             </Button>
           </div>
-
           <div className="p-6">
-            <KeywordList onRefresh={() => {}} />
+            <KeywordOverview ref={overviewRef} />
           </div>
         </div>
 
-        <KeywordModal
-          isOpen={isAddModalOpen}
-          onClose={() => setIsAddModalOpen(false)}
-          onKeywordSaved={() => setIsAddModalOpen(false)}
-        />
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Recent mentions</h2>
+              <p className="text-sm text-slate-500 mt-0.5">Latest matches across all platforms</p>
+            </div>
+            <Link
+              href="/dashboard/mentions"
+              className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+            >
+              View all
+            </Link>
+          </div>
+          <div className="p-6">
+            <MentionsFeed compact pageSize={8} viewAllHref="/dashboard/mentions" />
+          </div>
+        </div>
       </div>
+
+      <AddKeywordPlatformPicker
+        isOpen={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(platform) => {
+          setSelectedPlatform(platform);
+          setModalOpen(true);
+        }}
+      />
+
+      <KeywordModal
+        isOpen={modalOpen}
+        onClose={() => {
+          setModalOpen(false);
+          setSelectedPlatform(undefined);
+        }}
+        onKeywordSaved={handleKeywordSaved}
+        platform={selectedPlatform}
+      />
     </div>
   );
 }
