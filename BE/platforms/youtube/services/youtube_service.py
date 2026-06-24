@@ -7,7 +7,6 @@ from datetime import datetime
 
 import random
 import requests
-import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -594,7 +593,8 @@ class YouTubeService:
         return False
 
     @staticmethod
-    def _create_driver(headless: bool = True) -> uc.Chrome:
+    def _create_driver(headless: bool = True):
+        import undetected_chromedriver as uc
         options = uc.ChromeOptions()
         options.headless = headless
         options.add_argument("--no-sandbox")
