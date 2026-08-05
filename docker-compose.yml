@@ -1,0 +1,62 @@
+# Local / VM full stack: API + UI + Chrome-enabled monitor worker
+# Usage (from repo root):
+#   docker compose up --build -d
+#   ./scripts/smoke-check.sh
+# Stop:
+#   docker compose down
+#
+# Secrets:
+#   - API / worker runtime: BE/.env
+#   - UI build + Clerk secret: root .env (see .env.example)
+#
+# Full checklist: DEPLOYMENT.md
+# No domain yet: set NEXT_PUBLIC_* and CORS/Clerk parties to http://SERVER_IP:port
+
+services:
+  api:
+    image: kleio-api:local
+    build:
+      context: ./BE
+      dockerfile: Dockerfile
+      target: api
+    env_file:
+      - ./BE/.env
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  worker:
+    image: kleio-worker:local
+    build:
+      context: ./BE
+      dockerfile: Dockerfile
+      target: worker
+    command: ["python", "manage.py", "auto_monitor", "start"]
+    env_file:
+      - ./BE/.env
+    environment:
+      CHROME_BIN: /usr/bin/google-chrome
+      CHROME_PATH: /usr/bin/google-chrome
+    shm_size: "2gb"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ui:
+    image: kleio-ui:local
+    build:
+      context: ./UI
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+    environment:
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

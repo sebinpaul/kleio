@@ -22,10 +22,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: BE/requirements.txt
+          cache-dependency-path: |
+            BE/requirements.txt
+            BE/requirements-dev.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Run core.tests
         env:

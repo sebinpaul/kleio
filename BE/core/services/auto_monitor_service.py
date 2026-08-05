@@ -36,8 +36,9 @@ class AutoMonitorService:
         # Initialize HackerNews monitoring
         self.hn_service.start_monitoring()
         
-        # Start the monitoring thread
-        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        # Start the monitoring thread (non-daemon so the process stays alive if the
+        # management command's keep-alive loop is interrupted unexpectedly).
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=False)
         self.monitor_thread.start()
         
         logger.info("✅ Automatic monitoring service started successfully")

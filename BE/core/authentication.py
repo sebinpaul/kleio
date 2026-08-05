@@ -35,7 +35,8 @@ class ClerkAuthentication(BaseAuthentication):
     def authenticate(self, request):
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
-            raise AuthenticationFailed("Authentication credentials were not provided.")
+            # No credentials → anonymous. Permissions (AllowAny / IsAuthenticated) decide.
+            return None
 
         state = authenticate_request(
             request,

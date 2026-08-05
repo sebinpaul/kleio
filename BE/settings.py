@@ -226,7 +226,9 @@ CORS_ALLOW_HEADERS = [
 
 # Clerk authentication
 CLERK_SECRET_KEY = os.getenv('CLERK_SECRET_KEY')
-CLERK_JWT_KEY = os.getenv('CLERK_JWT_KEY')
+# Docker --env-file cannot hold multi-line PEMs; store with \n and expand here.
+_clerk_jwt_key = os.getenv('CLERK_JWT_KEY')
+CLERK_JWT_KEY = _clerk_jwt_key.replace('\\n', '\n') if _clerk_jwt_key else None
 CLERK_AUTHORIZED_PARTIES = _env_list(
     'CLERK_AUTHORIZED_PARTIES',
     'http://localhost:3000',

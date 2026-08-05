@@ -10,9 +10,12 @@ Thumbs.db
 .cursor/
 
 # Secrets & local env (never commit)
+.env
+.env.*
 *.env
 *.env.*
 !.env.example
+!**/.env.example
 
 # SQLite (Django internals only — app data lives in MongoDB)
 *.sqlite3

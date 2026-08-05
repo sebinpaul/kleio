@@ -594,6 +594,7 @@ class YouTubeService:
 
     @staticmethod
     def _create_driver(headless: bool = True):
+        import os
         import undetected_chromedriver as uc
         options = uc.ChromeOptions()
         options.headless = headless
@@ -608,13 +609,18 @@ class YouTubeService:
         )
         if headless:
             options.add_argument("--headless=new")
+
+        browser_path = os.getenv("CHROME_BIN") or os.getenv("CHROME_PATH")
+        chrome_kwargs = {"options": options}
+        if browser_path:
+            chrome_kwargs["browser_executable_path"] = browser_path
+
         try:
-            driver = uc.Chrome(options=options)
+            driver = uc.Chrome(**chrome_kwargs)
         except Exception:
-            driver = uc.Chrome(options=options, version_main=None)
+            driver = uc.Chrome(**chrome_kwargs, version_main=None)
         driver.set_page_load_timeout(30)
         return driver
-
 # Global instance (optional)
 youtube_service = YouTubeService()
 

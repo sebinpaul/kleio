@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand
 from core.services.auto_monitor_service import auto_monitor_service
 import time
+import signal
 import logging
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ class Command(BaseCommand):
             self._show_status(watch)
     
     def _start_monitoring(self):
-        """Start automatic monitoring"""
+        """Start automatic monitoring and keep the process alive (required for Docker/systemd)."""
         self.stdout.write(
             self.style.SUCCESS('🚀 Starting automatic monitoring service...')
         )
@@ -49,11 +50,32 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.WARNING('   New keywords will be automatically picked up')
             )
+            self.stdout.write(
+                self.style.WARNING('   Press Ctrl+C to stop')
+            )
+
+            stop = False
+
+            def _request_stop(signum, frame):
+                nonlocal stop
+                stop = True
+
+            signal.signal(signal.SIGTERM, _request_stop)
+            signal.signal(signal.SIGINT, _request_stop)
+
+            try:
+                while auto_monitor_service.is_running and not stop:
+                    time.sleep(1)
+            finally:
+                self.stdout.write('\n⏹️  Shutting down monitoring service...')
+                auto_monitor_service.stop_auto_monitoring()
+                self.stdout.write(self.style.SUCCESS('✅ Stopped'))
             
         except Exception as e:
             self.stdout.write(
                 self.style.ERROR(f'❌ Failed to start monitoring: {e}')
             )
+            raise SystemExit(1) from e
     
     def _stop_monitoring(self):
         """Stop automatic monitoring"""

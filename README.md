@@ -187,13 +187,17 @@ The app runs at `http://localhost:3000`. The backend API runs at `http://localho
 
 ## Deployment
 
-For production environment variables, Clerk/CORS alignment, and a pre-deploy checklist, copy and fill in:
+See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the overview, and **[DEPLOYMENT.hetzner.md](./DEPLOYMENT.hetzner.md)** for the Hetzner VPS walkthrough.
+
+Quick start on a server:
 
 ```bash
-cp BE/DEPLOYMENT.example.md BE/DEPLOYMENT.local.md
+cp .env.example .env
+cp BE/.env.example BE/.env
+# fill both files — use http://SERVER_IP:3000 / :8000 until you have a domain
+docker compose up --build -d
+./scripts/smoke-check.sh
 ```
-
-`DEPLOYMENT.local.md` is gitignored for your environment-specific URLs and notes.
 
 ## API Endpoints
 

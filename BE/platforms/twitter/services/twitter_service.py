@@ -23,7 +23,6 @@ from core.models import Keyword, Mention
 from core.enums import Platform, ContentType
 from core.services.matching_engine import GenericMatchingEngine, MatchContext
 from core.services.email_service import email_notification_service
-import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -72,7 +71,8 @@ def _get_chrome_version() -> Optional[int]:
     return None
 
 
-def _create_driver(headless: bool = True, user_data_dir: Optional[str] = None) -> uc.Chrome:
+def _create_driver(headless: bool = True, user_data_dir: Optional[str] = None):
+    import undetected_chromedriver as uc
     options = uc.ChromeOptions()
     options.headless = headless
     options.add_argument("--no-sandbox")
@@ -89,18 +89,22 @@ def _create_driver(headless: bool = True, user_data_dir: Optional[str] = None) -
     if user_data_dir:
         options.add_argument(f"--user-data-dir={user_data_dir}")
 
+    browser_path = os.getenv("CHROME_BIN") or os.getenv("CHROME_PATH")
+    chrome_kwargs = {"options": options}
+    if browser_path:
+        chrome_kwargs["browser_executable_path"] = browser_path
+
     chrome_version = _get_chrome_version()
     try:
         if chrome_version:
-            driver = uc.Chrome(options=options, version_main=chrome_version)
+            driver = uc.Chrome(**chrome_kwargs, version_main=chrome_version)
         else:
-            driver = uc.Chrome(options=options)
+            driver = uc.Chrome(**chrome_kwargs)
     except Exception:
-        driver = uc.Chrome(options=options, version_main=None)
+        driver = uc.Chrome(**chrome_kwargs, version_main=None)
 
     driver.set_page_load_timeout(30)
     return driver
-
 
 def _build_search_url(
     instance: str,
