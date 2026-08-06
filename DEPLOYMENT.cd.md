@@ -3,7 +3,7 @@
 **Goal:** After this, you only `git push origin main` from your laptop. GitHub SSHs into the VPS and runs `git pull` + `docker compose up --build -d`.
 
 **Already in the repo (after you pull/push these files):**
-- `.github/workflows/deploy.yml` — GitHub Actions workflow
+- `.github/workflows/ci.yml` — tests first, then SSH deploy to the VPS (only if tests pass on `main`)
 - `scripts/deploy.sh` — commands run on the VPS
 
 Do the stages **in order**. Do not skip.
@@ -132,7 +132,7 @@ Paste **everything**, including:
 
 4. Confirm secrets list shows `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`.
 
-(SSH port is fixed to **22** in the workflow. If you change the server SSH port later, edit `port:` in `.github/workflows/deploy.yml`.)
+(SSH port is fixed to **22** in the workflow. If you change the server SSH port later, edit `port:` in `.github/workflows/ci.yml`.)
 
 **Hetzner firewall:** port **22** must allow inbound SSH (you already opened this). GitHub Actions connects from the internet, so do not lock port 22 to only your home IP unless you also allow GitHub’s ranges (advanced — skip for now).
 
@@ -149,7 +149,7 @@ git checkout main
 git pull origin main
 ```
 
-If `DEPLOYMENT.cd.md`, `.github/workflows/deploy.yml`, and `scripts/deploy.sh` are not committed yet, commit and push them (or pull if they were pushed from another machine).
+If `DEPLOYMENT.cd.md`, `.github/workflows/ci.yml`, and `scripts/deploy.sh` are not committed yet, commit and push them (or pull if they were pushed from another machine).
 
 Then push to `main`:
 
@@ -164,12 +164,12 @@ That push should **trigger** the first deploy.
 ## Stage 5 — Watch the first deploy
 
 1. Open GitHub → **Actions** tab.
-2. Click the workflow run named **Deploy to VPS**.
-3. Open the **deploy** job and watch the log.
+2. Click the workflow run named **CI**.
+3. Confirm **test** is green, then **deploy** runs and goes green.
 
-**Success:** green check; log shows pull, compose build, smoke check passed.
+**Success:** both jobs green; deploy log shows pull, compose build, smoke check passed.
 
-**Failure:** red X — open the log, then see Stage 7.
+**Failure:** if **test** is red, **deploy does not run**. If **deploy** is red, open that job’s log — see Stage 7.
 
 First build can take **10–30 minutes** (especially the worker/Chrome image). Do not cancel early.
 
@@ -209,12 +209,13 @@ git commit -m "your message"
 git push origin main
 ```
 
-Then open **Actions** and wait for **Deploy to VPS** to go green.
+Then open **Actions** → **CI** and wait for **test** then **deploy** to go green.
 
 You can also trigger a deploy without a new commit:
 
-1. GitHub → **Actions** → **Deploy to VPS**
+1. GitHub → **Actions** → **CI**
 2. **Run workflow** → branch `main` → **Run workflow**
+   (runs tests first; deploys only if tests pass)
 
 Manual deploy (if Actions is down):
 
@@ -290,8 +291,8 @@ git pull origin main
 - [ ] Stage 1: `kleio_deploy` key created on laptop  
 - [ ] Stage 2: public key on VPS; `ssh -i ~/.ssh/kleio_deploy ...` prints OK  
 - [ ] Stage 3: GitHub secrets `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`  
-- [ ] Stage 4: `deploy.yml` on `main` pushed  
-- [ ] Stage 5: Actions job green  
+- [ ] Stage 4: `ci.yml` on `main` pushed  
+- [ ] Stage 5: Actions **CI** job green (test → deploy)  
 - [ ] Stage 6: health URL still `ok`  
 
 You’re done. CD is live.
