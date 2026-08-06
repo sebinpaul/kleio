@@ -20,8 +20,8 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+# Do not `pip install --upgrade pip` — keeps build tooling from floating.
 RUN python -m venv /opt/venv \
-  && /opt/venv/bin/pip install --upgrade pip \
   && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 FROM python:3.12-slim-bookworm AS api
