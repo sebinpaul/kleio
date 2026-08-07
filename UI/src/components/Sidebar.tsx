@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { UserButton } from "@clerk/nextjs";
+import UserMenu from "./UserMenu";
 
 const platforms = [
   {
@@ -133,28 +133,28 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <div className="fixed inset-y-0 left-0 z-50 w-64 bg-white/95 backdrop-blur-lg border-r border-slate-200 shadow-xl">
+    <div className="fixed inset-y-0 left-0 z-50 w-64 border-r border-sidebar-border bg-sidebar/95 shadow-xl backdrop-blur-lg">
       <div className="flex flex-col h-full">
         {/* Logo Section */}
-        <div className="p-6 border-b border-slate-200">
+        <div className="border-b border-sidebar-border p-6">
           <div className="flex items-center space-x-3">
             <div className="relative">
-              <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg">
+                <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
               </div>
-              <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full animate-pulse"></div>
+              <div className="absolute -right-1 -top-1 h-3 w-3 animate-pulse rounded-full bg-emerald-400"></div>
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Kleio</h1>
-              <p className="text-sm text-slate-500">Keyword Monitor</p>
+              <h1 className="text-2xl font-bold text-sidebar-foreground">Kleio</h1>
+              <p className="text-sm text-muted-foreground">Keyword Monitor</p>
             </div>
           </div>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-4 py-6 space-y-2">
+        <nav className="flex-1 space-y-2 px-4 py-6">
           {platforms.map((platform) => {
             const isActive = pathname === platform.href;
             
@@ -163,51 +163,38 @@ export default function Sidebar() {
                 key={platform.id}
                 href={platform.href}
                 className={`
-                  group flex items-center space-x-3 px-3 py-3 rounded-xl font-medium text-sm transition-all duration-200
+                  group flex items-center space-x-3 rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200
                   ${isActive 
-                    ? 'bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-700 border-r-2 border-indigo-500 shadow-sm' 
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 nav-hover'
+                    ? 'border-r-2 border-indigo-500 bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-700 shadow-sm dark:from-indigo-950/50 dark:to-purple-950/40 dark:text-indigo-300' 
+                    : 'nav-hover text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
                   }
                 `}
               >
                 <div className={`
-                  flex items-center justify-center w-10 h-10 rounded-lg transition-all duration-200
+                  flex h-10 w-10 items-center justify-center rounded-lg transition-all duration-200
                   ${isActive 
-                    ? 'bg-white shadow-sm text-indigo-600' 
-                    : 'bg-slate-100 text-slate-500 group-hover:bg-white group-hover:text-slate-700 group-hover:shadow-sm'
+                    ? 'bg-white text-indigo-600 shadow-sm dark:bg-zinc-900 dark:text-indigo-300' 
+                    : 'bg-secondary text-muted-foreground group-hover:bg-background group-hover:text-foreground group-hover:shadow-sm'
                   }
                 `}>
                   {platform.icon}
                 </div>
                 <div className="flex-1">
                   <div className="font-semibold">{platform.name}</div>
-                  <div className="text-xs text-slate-500">{platform.description}</div>
+                  <div className="text-xs text-muted-foreground">{platform.description}</div>
                 </div>
                 <div className={`
-                  w-2 h-2 rounded-full transition-all duration-200
-                  ${isActive ? 'bg-indigo-400' : 'bg-slate-300 opacity-0 group-hover:opacity-100'}
+                  h-2 w-2 rounded-full transition-all duration-200
+                  ${isActive ? 'bg-indigo-400' : 'bg-border opacity-0 group-hover:opacity-100'}
                 `}></div>
               </Link>
             );
           })}
         </nav>
 
-        {/* User Section */}
-        <div className="p-4 border-t border-slate-200">
-          <div className="flex items-center space-x-3 px-3 py-3 rounded-xl bg-gradient-to-r from-slate-50 to-indigo-50">
-            <UserButton 
-              appearance={{
-                elements: {
-                  avatarBox: "w-10 h-10"
-                }
-              }}
-            />
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-slate-900 truncate">Welcome back</div>
-              <div className="text-xs text-slate-500">Monitoring active</div>
-            </div>
-            <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
-          </div>
+        {/* User account menu (bottom-left) */}
+        <div className="border-t border-sidebar-border p-3">
+          <UserMenu />
         </div>
       </div>
     </div>
