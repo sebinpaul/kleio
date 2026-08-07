@@ -14,7 +14,7 @@ pymongo==4.13.2
 praw==8.0.2
 
 # HTTP requests
-requests==2.32.4
+requests==2.34.2
 aiohttp==3.12.14
 
 # Undetected Chrome Driver for web scraping
