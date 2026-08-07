@@ -11,7 +11,7 @@ mongoengine==0.29.1
 pymongo==4.13.2
 
 # Reddit API
-praw==7.8.1
+praw==8.0.2
 
 # HTTP requests
 requests==2.32.4
