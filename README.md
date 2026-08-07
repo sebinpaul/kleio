@@ -187,7 +187,7 @@ The app runs at `http://localhost:3000`. The backend API runs at `http://localho
 
 ## Deployment
 
-See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the overview, **[DEPLOYMENT.hetzner.md](./DEPLOYMENT.hetzner.md)** for the Hetzner VPS walkthrough, and **[DEPLOYMENT.cd.md](./DEPLOYMENT.cd.md)** for auto-deploy (push to `main` → VPS).
+See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the overview, **[DEPLOYMENT.hetzner.md](./DEPLOYMENT.hetzner.md)** for the Hetzner VPS walkthrough, **[DEPLOYMENT.cd.md](./DEPLOYMENT.cd.md)** for auto-deploy (push to `main` → VPS), and **[DEPLOYMENT.worker-watchdog.md](./DEPLOYMENT.worker-watchdog.md)** for worker cron restart + alerts.
 
 Quick start on a server:
 

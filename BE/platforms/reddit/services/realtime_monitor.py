@@ -117,45 +117,74 @@ class RealtimeStreamMonitor:
             
             submissions_thread.start()
             comments_thread.start()
-            
-            # Add threads to monitoring list
+
             self.monitoring_threads.extend([submissions_thread, comments_thread])
-            self.monitoring_threads.extend([comments_thread])
-            
-            logger.info(f"Started monitoring r/{subreddit_name} with {len(keywords)} keywords")
-            
+
+            logger.info(f"Started monitoring r/{subreddit_name} with {len(keywords)} keywords")            
         except Exception as e:
             logger.error(f"Error monitoring r/{subreddit_name}: {e}")
     
     def _monitor_submissions_stream(self, subreddit, keywords):
-        """Monitor submissions stream for mentions"""
-        try:
-            logger.info(f"Starting submissions stream monitoring for r/{subreddit.display_name} (skip_existing=True)")
-            
-            for submission in subreddit.stream.submissions(skip_existing=True):
+        """Monitor submissions stream for mentions (reconnects after errors / rate limits)."""
+        backoff_secs = 30
+        max_backoff_secs = 600
+        while not self.stop_monitoring:
+            try:
+                # Refresh client in case a prior 429 left it in a bad state
+                if not self.reddit:
+                    self._rotate_reddit_client()
+                live_subreddit = self.reddit.subreddit(subreddit.display_name)
+                logger.info(
+                    f"Starting submissions stream monitoring for r/{live_subreddit.display_name} (skip_existing=True)"
+                )
+
+                for submission in live_subreddit.stream.submissions(skip_existing=True):
+                    if self.stop_monitoring:
+                        break
+                    self._check_submission_for_keywords(submission, keywords)
+                    backoff_secs = 30  # reset after successful traffic
+
+            except Exception as e:
+                logger.error(f"Error in submissions stream for r/{subreddit.display_name}: {e}")
+                self._rotate_reddit_client()
                 if self.stop_monitoring:
                     break
-                
-                self._check_submission_for_keywords(submission, keywords)
-                
-        except Exception as e:
-            logger.error(f"Error in submissions stream for r/{subreddit.display_name}: {e}")
-            self._rotate_reddit_client()
-    
+                logger.warning(
+                    f"Submissions stream r/{subreddit.display_name} will reconnect in {backoff_secs}s"
+                )
+                time.sleep(backoff_secs)
+                backoff_secs = min(backoff_secs * 2, max_backoff_secs)
+
     def _monitor_comments_stream(self, subreddit, keywords):
-        """Monitor comments stream for mentions"""
-        try:
-            logger.info(f"Starting comments stream monitoring for r/{subreddit.display_name} (skip_existing=True)")
-            
-            for comment in subreddit.stream.comments(skip_existing=True):
+        """Monitor comments stream for mentions (reconnects after errors / rate limits)."""
+        backoff_secs = 30
+        max_backoff_secs = 600
+        while not self.stop_monitoring:
+            try:
+                if not self.reddit:
+                    self._rotate_reddit_client()
+                live_subreddit = self.reddit.subreddit(subreddit.display_name)
+                logger.info(
+                    f"Starting comments stream monitoring for r/{live_subreddit.display_name} (skip_existing=True)"
+                )
+
+                for comment in live_subreddit.stream.comments(skip_existing=True):
+                    if self.stop_monitoring:
+                        break
+                    self._check_comment_for_keywords(comment, keywords)
+                    backoff_secs = 30
+
+            except Exception as e:
+                logger.error(f"Error in comments stream for r/{subreddit.display_name}: {e}")
+                self._rotate_reddit_client()
                 if self.stop_monitoring:
                     break
-                self._check_comment_for_keywords(comment, keywords)
-                
-        except Exception as e:
-            logger.error(f"Error in comments stream for r/{subreddit.display_name}: {e}")
-            self._rotate_reddit_client()
-    
+                logger.warning(
+                    f"Comments stream r/{subreddit.display_name} will reconnect in {backoff_secs}s"
+                )
+                time.sleep(backoff_secs)
+                backoff_secs = min(backoff_secs * 2, max_backoff_secs)
+ 
     def _check_submission_for_keywords(self, submission, keywords):
         """Check if a submission matches any keywords"""
         try:

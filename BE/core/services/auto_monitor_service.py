@@ -72,41 +72,51 @@ class AutoMonitorService:
     def _monitor_loop(self):
         """Main monitoring loop that runs continuously"""
         logger.info("🔄 Starting monitoring loop...")
-        
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+
         while self.is_running:
             try:
                 # Check for active keywords
                 self._check_and_update_keywords()
-                
+                consecutive_errors = 0
+
                 # Wait before next check
                 time.sleep(self.check_interval)
-                
+
             except Exception as e:
+                consecutive_errors += 1
                 logger.error(f"Error in monitoring loop: {e}")
                 logger.error(f"Error type: {type(e).__name__}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.error(
+                        "Too many consecutive monitoring errors (%s); exiting so Docker can restart the worker",
+                        consecutive_errors,
+                    )
+                    raise SystemExit(1) from e
                 time.sleep(60)  # Wait longer on error
-    
+
     def _check_and_update_keywords(self):
         """Check for active keywords and update monitoring if needed"""
         try:
             # Get all active keywords
             active_keywords = Keyword.objects.filter(is_active=True)
             current_keyword_ids = {str(kw.id) for kw in active_keywords}
-            
+
             # Check if we need to update monitoring
             if current_keyword_ids != self.monitored_keywords:
                 logger.info(f"🔄 Keyword changes detected. Updating monitoring...")
                 logger.info(f"   Previously monitoring: {len(self.monitored_keywords)} keywords")
                 logger.info(f"   Now monitoring: {len(current_keyword_ids)} keywords")
-                
+
                 # Stop current monitoring
                 realtime_stream_monitor.stop_stream_monitoring()
                 self.hn_service.stop_real_time_streaming()
                 twitter_service.stop_stream_monitoring()
                 youtube_service.stop_stream_monitoring()
-                
+
                 # Start monitoring with updated keywords
                 if active_keywords:
                     # Separate keywords by platform
@@ -114,17 +124,17 @@ class AutoMonitorService:
                     hn_keywords = [kw for kw in active_keywords if kw.platform in [Platform.HACKERNEWS.value, Platform.ALL.value]]
                     twitter_keywords = [kw for kw in active_keywords if kw.platform in [Platform.TWITTER.value, Platform.ALL.value]]
                     youtube_keywords = [kw for kw in active_keywords if kw.platform in [Platform.YOUTUBE.value, Platform.ALL.value]]
-                    
+
                     # Start Reddit monitoring
                     if reddit_keywords:
                         realtime_stream_monitor.start_stream_monitoring(reddit_keywords)
                         logger.info(f"✅ Updated Reddit monitoring for {len(reddit_keywords)} keywords")
-                    
+
                     # Start HackerNews real-time streaming
                     if hn_keywords:
                         self.hn_service.start_real_time_streaming(hn_keywords)
                         logger.info(f"✅ Updated HackerNews streaming for {len(hn_keywords)} keywords")
-                    
+
                     # Start Twitter monitoring
                     if twitter_keywords:
                         twitter_service.start_stream_monitoring(twitter_keywords)
@@ -133,20 +143,30 @@ class AutoMonitorService:
                     if youtube_keywords:
                         youtube_service.start_stream_monitoring(youtube_keywords)
                         logger.info(f"✅ Updated YouTube monitoring for {len(youtube_keywords)} keywords")
-                    
+
                     self.monitored_keywords = current_keyword_ids
                 else:
                     logger.info("ℹ️  No active keywords to monitor")
                     self.monitored_keywords = set()
-                
+
                 self.last_keyword_check = timezone.now()
-            
+
         except Exception as e:
             logger.error(f"Error checking keywords: {e}")
             logger.error(f"Error type: {type(e).__name__}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
-    
+            # Connection / DNS failures should bubble up so the loop can exit and Docker restarts.
+            name = type(e).__name__
+            msg = str(e).lower()
+            if (
+                name in {"AutoReconnect", "ServerSelectionTimeoutError", "NetworkTimeout", "ConnectionFailure"}
+                or "name or service not known" in msg
+                or "temporary failure in name resolution" in msg
+                or "connection refused" in msg
+            ):
+                raise
+ 
     def _send_email_notification(self, mention: Mention):
         """Send email notification for a mention"""
         try:

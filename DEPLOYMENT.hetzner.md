@@ -299,7 +299,7 @@ docker compose up -d ui
 4. Rebuild UI with `https://your.domain`  
 5. Update Clerk + CORS + `ALLOWED_HOSTS`  
 
-See also: [DEPLOYMENT.md](./DEPLOYMENT.md) · **Auto-deploy (CD):** [DEPLOYMENT.cd.md](./DEPLOYMENT.cd.md)
+See also: [DEPLOYMENT.md](./DEPLOYMENT.md) · **Auto-deploy (CD):** [DEPLOYMENT.cd.md](./DEPLOYMENT.cd.md) · **Worker watchdog:** [DEPLOYMENT.worker-watchdog.md](./DEPLOYMENT.worker-watchdog.md)
 
 ---
 
