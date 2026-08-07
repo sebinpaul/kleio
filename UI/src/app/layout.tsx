@@ -33,15 +33,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <head>
         <link rel="dns-prefetch" href="https://clerk.kleio.dev" />
         <link rel="dns-prefetch" href="https://api.clerk.dev" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('kleio-theme');var d=t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark');}catch(e){}})();`,
-          }}
-        />
       </head>
       <body className={`${inter.variable} ${raleway.variable} font-sans antialiased`}>
         <ClerkProvider>{children}</ClerkProvider>

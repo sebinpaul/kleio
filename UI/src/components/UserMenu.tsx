@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useClerk, useUser } from "@clerk/nextjs";
-import { ArrowUpRight, Monitor, Moon, MoreHorizontal, Sun } from "lucide-react";
+import { ArrowUpRight, MoreHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,46 +10,13 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-type Theme = "light" | "dark" | "system";
-
-const THEME_KEY = "kleio-theme";
-
-function applyTheme(theme: Theme) {
-  const root = document.documentElement;
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const dark = theme === "dark" || (theme === "system" && prefersDark);
-  root.classList.toggle("dark", dark);
-}
-
-function readStoredTheme(): Theme {
-  if (typeof window === "undefined") return "system";
-  const stored = window.localStorage.getItem(THEME_KEY);
-  if (stored === "light" || stored === "dark" || stored === "system") return stored;
-  return "system";
-}
-
 export default function UserMenu() {
   const { user } = useUser();
   const { signOut, openUserProfile } = useClerk();
-  const [theme, setTheme] = useState<Theme>("system");
-
-  useEffect(() => {
-    const initial = readStoredTheme();
-    setTheme(initial);
-    applyTheme(initial);
-  }, []);
-
-  const setAndStoreTheme = (next: Theme) => {
-    setTheme(next);
-    window.localStorage.setItem(THEME_KEY, next);
-    applyTheme(next);
-  };
 
   const email =
     user?.primaryEmailAddress?.emailAddress ??
@@ -66,25 +32,25 @@ export default function UserMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="secondary"
-          className="h-auto w-full justify-start gap-3 rounded-full px-2.5 py-2"
+          variant="ghost"
+          className="h-auto w-full justify-start gap-3 rounded-xl bg-gradient-to-r from-slate-50 to-indigo-50 px-3 py-3 hover:from-slate-100 hover:to-indigo-100"
         >
           {imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={imageUrl}
               alt=""
-              className="h-9 w-9 rounded-full object-cover"
+              className="h-10 w-10 rounded-full object-cover"
             />
           ) : (
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-900 text-sm font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-600 text-sm font-semibold text-white">
               {initial}
             </div>
           )}
-          <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
+          <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-slate-900">
             {email}
           </span>
-          <MoreHorizontal className="size-4 text-muted-foreground" />
+          <MoreHorizontal className="size-4 text-slate-500" />
         </Button>
       </DropdownMenuTrigger>
 
@@ -92,72 +58,26 @@ export default function UserMenu() {
         side="top"
         align="start"
         sideOffset={8}
-        className="w-64 rounded-2xl border-border bg-zinc-950 p-1.5 text-zinc-100 shadow-2xl dark:bg-zinc-950"
+        className="w-64 rounded-xl"
       >
         <DropdownMenuGroup>
-          <DropdownMenuItem
-            className="rounded-xl px-3 py-2.5 text-zinc-200 focus:bg-white/10 focus:text-zinc-100"
-            onSelect={() => openUserProfile()}
-          >
+          <DropdownMenuItem onSelect={() => openUserProfile()}>
             My profile
           </DropdownMenuItem>
-        </DropdownMenuGroup>
-
-        <div className="flex items-center justify-between gap-2 rounded-xl bg-white/5 px-3 py-2 text-sm text-zinc-200">
-          <span>Appearance</span>
-          <DropdownMenuRadioGroup
-            value={theme}
-            onValueChange={(value) => setAndStoreTheme(value as Theme)}
-            className="flex items-center rounded-lg bg-zinc-900 p-0.5"
-          >
-            <DropdownMenuRadioItem
-              value="light"
-              className="rounded-md p-1.5 pl-1.5 text-zinc-400 focus:bg-zinc-700 focus:text-white data-[state=checked]:bg-zinc-700 data-[state=checked]:text-white [&>span:first-child]:hidden"
-              aria-label="Light"
-            >
-              <Sun className="size-3.5" />
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem
-              value="dark"
-              className="rounded-md p-1.5 pl-1.5 text-zinc-400 focus:bg-zinc-700 focus:text-white data-[state=checked]:bg-zinc-700 data-[state=checked]:text-white [&>span:first-child]:hidden"
-              aria-label="Dark"
-            >
-              <Moon className="size-3.5" />
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem
-              value="system"
-              className="rounded-md p-1.5 pl-1.5 text-zinc-400 focus:bg-zinc-700 focus:text-white data-[state=checked]:bg-zinc-700 data-[state=checked]:text-white [&>span:first-child]:hidden"
-              aria-label="System"
-            >
-              <Monitor className="size-3.5" />
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </div>
-
-        <DropdownMenuSeparator className="bg-white/10" />
-
-        <DropdownMenuGroup>
-          <DropdownMenuItem
-            asChild
-            className="rounded-xl px-3 py-2.5 text-zinc-200 focus:bg-white/10 focus:text-zinc-100"
-          >
+          <DropdownMenuItem asChild>
             <Link href="/">
               Homepage
-              <ArrowUpRight className="ml-auto size-3.5 text-zinc-500" />
+              <ArrowUpRight className="ml-auto size-3.5 text-muted-foreground" />
             </Link>
           </DropdownMenuItem>
-          <DropdownMenuItem
-            asChild
-            className="rounded-xl px-3 py-2.5 text-zinc-200 focus:bg-white/10 focus:text-zinc-100"
-          >
-            <Link href="/dashboard">Onboarding</Link>
+          <DropdownMenuItem asChild>
+            <Link href="/dashboard/settings">Settings</Link>
           </DropdownMenuItem>
         </DropdownMenuGroup>
 
-        <DropdownMenuSeparator className="bg-white/10" />
+        <DropdownMenuSeparator />
 
         <DropdownMenuItem
-          className="rounded-xl px-3 py-2.5 text-zinc-200 focus:bg-white/10 focus:text-zinc-100"
           onSelect={() => {
             void signOut({ redirectUrl: "/" });
           }}
