@@ -227,50 +227,55 @@ const testimonials = [
 
 const pricingPlans = [
   {
-    name: "Starter",
+    name: "Free",
     price: "$0",
-    period: "forever",
-    description: "For indie hackers exploring social listening.",
+    period: "month",
+    description: "Try real-time alerts on Reddit and Hacker News.",
     cta: "Start Free",
     featured: false,
     features: [
-      "5 keywords",
-      "Reddit monitoring",
+      "Reddit: 2 keyword alerts",
+      "Hacker News: 2 keyword alerts",
+      "X: 0 keyword alerts",
+      "YouTube: 0 keyword alerts",
       "Email alerts",
-      "7-day mention history",
-      "Basic deduplication",
+      "Basic support",
     ],
   },
   {
     name: "Pro",
     price: "$17",
-    period: "per month",
-    description: "For founders and growth teams who need full coverage.",
+    period: "month",
+    description: "Full platform coverage for founders who need to catch every mention.",
     cta: "Get Pro",
     featured: true,
     features: [
-      "Unlimited keywords",
-      "Reddit + Hacker News",
-      "Priority scan frequency",
-      "90-day mention history",
-      "Advanced deduplication",
-      "Keyword analytics",
+      "Reddit: 20 keyword alerts",
+      "Hacker News: 20 keyword alerts",
+      "X: 4 keyword alerts",
+      "YouTube: 4 keyword alerts",
+      "Filtering and saved results",
+      "Email alerts",
+      "Basic support",
     ],
   },
   {
-    name: "Team",
-    price: "$37",
-    period: "per month",
-    description: "For teams managing multiple brands and products.",
-    cta: "Contact Sales",
+    name: "Business",
+    price: "$75",
+    period: "month",
+    description: "Higher limits plus team workflows and integrations.",
+    cta: "Get Business",
     featured: false,
     features: [
-      "Everything in Pro",
-      "Shared watchlists",
-      "Role-based access",
-      "Team notifications",
-      "Weekly digest reports",
-      "Priority support",
+      "Reddit: 100 keyword alerts",
+      "Hacker News: 100 keyword alerts",
+      "X: 10 keyword alerts",
+      "YouTube: 10 keyword alerts",
+      "Slack notifications",
+      "API / webhooks",
+      "Bulk keyword import",
+      "Team management",
+      "Basic support",
     ],
   },
 ];
@@ -278,11 +283,11 @@ const pricingPlans = [
 const faqs = [
   {
     q: "What platforms does Kleio currently monitor?",
-    a: "Kleio monitors Reddit, Hacker News, Twitter, and YouTube in real time from a single dashboard.",
+    a: "Kleio monitors Reddit, Hacker News, X (Twitter), and YouTube in real time from a single dashboard.",
   },
   {
     q: "How quickly will I receive mention alerts?",
-    a: "Most mentions are detected within minutes of being posted. Pro and Team plans get priority scanning for even faster detection.",
+    a: "Most mentions are detected within minutes of being posted. Pro and Business plans get broader platform coverage and higher keyword limits.",
   },
   {
     q: "Can I track competitor keywords alongside my own brand?",
@@ -294,7 +299,7 @@ const faqs = [
   },
   {
     q: "Is there a free plan available?",
-    a: "Yes. Our Starter plan is free forever and includes 5 keywords with Reddit monitoring.",
+    a: "Yes. Free includes 2 Reddit and 2 Hacker News keyword alerts with email notifications—no credit card required.",
   },
 ];
 
@@ -939,23 +944,40 @@ function PricingSection() {
                   ))}
                 </ul>
 
-                <Link href="/sign-up">
-                  {plan.featured ? (
-                    <ShimmerButton
-                      background="rgba(79, 70, 229, 1)"
-                      borderRadius="0.75rem"
-                      className="w-full h-11 px-8"
-                      shimmerColor='rgb(14, 196, 203)'
-                shimmerSize="0.2em"
-                    >
-                      {plan.cta}
-                    </ShimmerButton>
-                  ) : (
-                    <Button variant="outline" size="lg" className="w-full rounded-xl">
-                      {plan.cta}
-                    </Button>
-                  )}
-                </Link>
+                {plan.name === "Business" ? (
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    className="w-full rounded-xl"
+                    disabled
+                  >
+                    Coming soon
+                  </Button>
+                ) : (
+                  <Link
+                    href={
+                      plan.name === "Pro"
+                        ? "/dashboard/settings?upgrade=pro"
+                        : "/sign-up"
+                    }
+                  >
+                    {plan.featured ? (
+                      <ShimmerButton
+                        background="rgba(79, 70, 229, 1)"
+                        borderRadius="0.75rem"
+                        className="w-full h-11 px-8"
+                        shimmerColor="rgb(14, 196, 203)"
+                        shimmerSize="0.2em"
+                      >
+                        {plan.cta}
+                      </ShimmerButton>
+                    ) : (
+                      <Button variant="outline" size="lg" className="w-full rounded-xl">
+                        {plan.cta}
+                      </Button>
+                    )}
+                  </Link>
+                )}
               </div>
             </Reveal>
           ))}

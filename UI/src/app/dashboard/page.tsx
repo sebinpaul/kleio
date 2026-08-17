@@ -14,11 +14,11 @@ export default function Dashboard() {
   const overviewRef = useRef<KeywordOverviewRef>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [selectedPlatform, setSelectedPlatform] = useState<Platform | undefined>();
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([]);
 
   const handleKeywordSaved = () => {
     setModalOpen(false);
-    setSelectedPlatform(undefined);
+    setSelectedPlatforms([]);
     overviewRef.current?.refresh();
   };
 
@@ -92,8 +92,8 @@ export default function Dashboard() {
       <AddKeywordPlatformPicker
         isOpen={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        onSelect={(platform) => {
-          setSelectedPlatform(platform);
+        onSelect={(picked) => {
+          setSelectedPlatforms(picked);
           setModalOpen(true);
         }}
       />
@@ -102,10 +102,13 @@ export default function Dashboard() {
         isOpen={modalOpen}
         onClose={() => {
           setModalOpen(false);
-          setSelectedPlatform(undefined);
+          setSelectedPlatforms([]);
         }}
         onKeywordSaved={handleKeywordSaved}
-        platform={selectedPlatform}
+        platforms={selectedPlatforms}
+        platform={
+          selectedPlatforms.length === 1 ? selectedPlatforms[0] : undefined
+        }
       />
     </div>
   );

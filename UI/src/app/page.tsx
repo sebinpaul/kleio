@@ -64,10 +64,11 @@ function JsonLd() {
         offers: [
           {
             "@type": "Offer",
-            name: "Starter",
+            name: "Free",
             price: "0",
             priceCurrency: "USD",
-            description: "5 keywords, Reddit monitoring, email alerts",
+            description:
+              "2 Reddit and 2 Hacker News keyword alerts with email notifications",
           },
           {
             "@type": "Offer",
@@ -76,16 +77,16 @@ function JsonLd() {
             priceCurrency: "USD",
             billingIncrement: "P1M",
             description:
-              "Unlimited keywords, Reddit + Hacker News, priority scans",
+              "20 Reddit, 20 Hacker News, 4 X, and 4 YouTube keyword alerts",
           },
           {
             "@type": "Offer",
-            name: "Team",
-            price: "37",
+            name: "Business",
+            price: "75",
             priceCurrency: "USD",
             billingIncrement: "P1M",
             description:
-              "Shared watchlists, role-based access, weekly digests",
+              "100 Reddit, 100 Hacker News, 10 X, and 10 YouTube keyword alerts, plus Slack, API, and team management",
           },
         ],
         aggregateRating: {
@@ -111,7 +112,7 @@ function JsonLd() {
             name: "How quickly will I receive mention alerts?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "Most mentions are detected within minutes of being posted. Pro and Team plans get priority scanning for even faster detection.",
+              text: "Most mentions are detected within minutes of being posted. Pro and Business plans get broader platform coverage and higher keyword limits.",
             },
           },
           {
@@ -119,7 +120,7 @@ function JsonLd() {
             name: "Is there a free plan available?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "Yes. The Starter plan is free forever and includes 5 keywords with Reddit monitoring.",
+              text: "Yes. Free includes 2 Reddit and 2 Hacker News keyword alerts with email notifications—no credit card required.",
             },
           },
         ],

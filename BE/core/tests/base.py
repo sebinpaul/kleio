@@ -42,6 +42,8 @@ class MongoTestCase(TestCase):
     def setUp(self):
         Keyword.drop_collection()
         Mention.drop_collection()
+        from core.models import UserProfile
+        UserProfile.drop_collection()
 
     @staticmethod
     def auth_user(clerk_id: str = "test-user-1") -> ClerkUser:

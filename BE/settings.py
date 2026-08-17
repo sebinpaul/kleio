@@ -263,6 +263,15 @@ REDDIT_USER_AGENT = os.getenv('REDDIT_USER_AGENT', 'KleioMentionTracker/1.0')
 RESEND_API_KEY = os.getenv('RESEND_API_KEY')
 RESEND_FROM_EMAIL = os.getenv('RESEND_FROM_EMAIL')
 
+# Frontend (checkout return URLs)
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+
+# Dodo Payments
+DODO_PAYMENTS_API_KEY = os.getenv('DODO_PAYMENTS_API_KEY')
+DODO_PAYMENTS_WEBHOOK_KEY = os.getenv('DODO_PAYMENTS_WEBHOOK_KEY')
+DODO_PAYMENTS_ENVIRONMENT = os.getenv('DODO_PAYMENTS_ENVIRONMENT', 'test_mode')
+DODO_PRO_PRODUCT_ID = os.getenv('DODO_PRO_PRODUCT_ID', 'pdt_0Nl9M3Ip9w0OyXZGilemz')
+
 # Logging Configuration (copied from Java application.properties)
 LOGGING = {
     'version': 1,

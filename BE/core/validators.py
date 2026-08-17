@@ -77,6 +77,38 @@ def parse_string_list(raw, field_name: str) -> tuple[list[str] | None, Response 
     return values, None
 
 
+def parse_platforms_list(raw) -> tuple[list[str] | None, Response | None]:
+    """Parse an optional list of specific platforms for multi-create."""
+    if raw is None:
+        return None, None
+    if isinstance(raw, str):
+        raw = [part.strip() for part in raw.split(',') if part.strip()]
+    if not isinstance(raw, list):
+        return None, _bad_request('platforms must be a list of strings')
+    if len(raw) == 0:
+        return None, _bad_request('platforms must include at least one platform')
+
+    values: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str):
+            return None, _bad_request('platforms must be a list of strings')
+        platform = item.strip()
+        if platform == Platform.ALL.value:
+            return None, _bad_request(
+                f'platforms entries must be specific platforms: {", ".join(sorted(SPECIFIC_PLATFORMS))}'
+            )
+        if platform not in SPECIFIC_PLATFORMS:
+            return None, _bad_request(
+                f'platforms entries must be one of: {", ".join(sorted(SPECIFIC_PLATFORMS))}'
+            )
+        if platform in seen:
+            continue
+        seen.add(platform)
+        values.append(platform)
+    return values, None
+
+
 def parse_platform_filters(raw) -> tuple[list[str] | None, Response | None]:
     return parse_string_list(raw, 'platformSpecificFilters')
 

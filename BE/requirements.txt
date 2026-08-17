@@ -31,6 +31,9 @@ resend==2.11.0
 # Authentication
 clerk-backend-api==6.0.0
 
+# Payments
+dodopayments==1.111.0
+
 # Date/time handling
 python-dateutil==2.9.0.post0
 langdetect==1.0.9

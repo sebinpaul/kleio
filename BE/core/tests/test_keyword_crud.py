@@ -5,9 +5,18 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from core.models import Keyword
+from core.services import billing_service
 from core.views import get_keywords, update_keyword, toggle_keyword
 
 from .base import MongoTestCase, NO_THROTTLE
+
+
+def _grant_pro(user_id: str) -> None:
+    profile = billing_service.get_or_create_profile(user_id)
+    profile.plan = "pro"
+    profile.subscription_status = "active"
+    profile.dodo_subscription_id = "sub_test"
+    profile.save()
 
 
 @NO_THROTTLE
@@ -46,7 +55,33 @@ class KeywordCrudApiTests(MongoTestCase):
         self.assertTrue(response.data["enabled"])
         self.assertEqual(Keyword.objects.count(), 1)
 
+    def test_create_keyword_on_multiple_platforms(self):
+        _grant_pro("test-user-1")
+        request = self._request(
+            "POST",
+            "/api/keywords",
+            {
+                "keyword": "kleio",
+                "platforms": ["reddit", "hackernews", "twitter"],
+                "excludedKeywords": ["spam"],
+                "matchMode": "contains",
+                "contentTypes": ["titles", "body"],
+            },
+        )
+        response = get_keywords(request)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["count"], 3)
+        self.assertEqual(len(response.data["keywords"]), 3)
+        platforms = {item["platform"] for item in response.data["keywords"]}
+        self.assertEqual(platforms, {"reddit", "hackernews", "twitter"})
+        self.assertEqual(Keyword.objects.count(), 3)
+        for kw in Keyword.objects:
+            self.assertEqual(kw.keyword, "kleio")
+            self.assertEqual(kw.excluded_keywords, ["spam"])
+            self.assertEqual(kw.platform_specific_filters, [])
+
     def test_create_keyword_with_all_filters(self):
+        _grant_pro("test-user-1")
         payload = {
             "keyword": "kleio",
             "platform": "twitter",
@@ -113,6 +148,7 @@ class KeywordCrudApiTests(MongoTestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_platform_scoped_create_uses_url_platform(self):
+        _grant_pro("test-user-1")
         request = self._request("POST", "/api/platforms/youtube/keywords", {"keyword": "django"})
         response = get_keywords(request, platform="youtube")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)

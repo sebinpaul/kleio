@@ -12,6 +12,7 @@ from .validators import (
     parse_enabled,
     parse_keyword_text,
     parse_platform,
+    parse_platforms_list,
     parse_platform_filters,
     parse_string_list,
     parse_case_sensitive,
@@ -19,6 +20,10 @@ from .validators import (
     parse_content_types,
     validate_keyword_id,
 )
+from .services import billing_service
+from .services import dodo_service
+from .services.clerk_service import clerk_user_service
+from django.conf import settings as django_settings
 
 logger = logging.getLogger(__name__)
 
@@ -158,12 +163,26 @@ def get_keywords(request, platform=None):
         if error:
             return error
 
-        platform_value, error = parse_platform(
-            data.get('platform'),
-            url_platform=platform,
-        )
+        platforms_list, error = parse_platforms_list(data.get('platforms'))
         if error:
             return error
+
+        if platforms_list is None:
+            platform_value, error = parse_platform(
+                data.get('platform'),
+                url_platform=platform,
+            )
+            if error:
+                return error
+            platforms_list = [platform_value]
+
+        # URL-scoped create must target that platform only
+        if platform is not None:
+            if len(platforms_list) != 1 or platforms_list[0] != platform:
+                return Response(
+                    {'error': 'platform in request body must match the URL platform'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         platform_filters, error = parse_platform_filters(data.get('platformSpecificFilters', []))
         if error:
@@ -181,10 +200,6 @@ def get_keywords(request, platform=None):
         if error:
             return error
 
-        content_types, error = parse_content_types(data.get('contentTypes'), platform=platform_value)
-        if error:
-            return error
-
         email_notifications, error = parse_enabled(data.get('emailNotifications', True))
         if error:
             return error
@@ -193,35 +208,86 @@ def get_keywords(request, platform=None):
         if error:
             return error
 
-        extra_settings, error = _parse_keyword_settings(data, platform=platform_value)
+        # Shared filter fields (platform-agnostic). Source filters applied per platform below.
+        base_settings, error = _parse_keyword_settings(data, platform=None)
         if error:
             return error
 
+        # Preflight plan limits for every target platform
+        for platform_value in platforms_list:
+            ok, limit_error = billing_service.check_can_add_keyword(user_id, platform_value)
+            if not ok:
+                return Response(
+                    {'error': limit_error, 'code': 'plan_limit', 'platform': platform_value},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        created = []
+        multi = len(platforms_list) > 1
         try:
-            keyword = Keyword(
-                user_id=user_id,
-                keyword=keyword_text,
-                platform=platform_value,
-                platform_specific_filters=extra_settings.get('platform_specific_filters', platform_filters),
-                case_sensitive=extra_settings.get('case_sensitive', case_sensitive),
-                match_mode=extra_settings.get('match_mode', match_mode),
-                content_types=extra_settings.get('content_types', content_types),
-                excluded_keywords=extra_settings.get('excluded_keywords', []),
-                excluded_subreddits=extra_settings.get('excluded_subreddits', []),
-                included_users=extra_settings.get('included_users', []),
-                excluded_users=extra_settings.get('excluded_users', []),
-                included_languages=extra_settings.get('included_languages', []),
-                excluded_languages=extra_settings.get('excluded_languages', []),
-                email_notifications=extra_settings.get('email_notifications', email_notifications),
-                slack_notifications=extra_settings.get('slack_notifications', slack_notifications),
-                is_active=enabled,
-                created_at=timezone.now(),
-                updated_at=timezone.now(),
+            for platform_value in platforms_list:
+                content_types, error = parse_content_types(
+                    data.get('contentTypes'),
+                    platform=platform_value,
+                )
+                if error:
+                    return error
+
+                # Multi-platform create shares matching/notification settings but skips
+                # platform-specific source filters (edit each keyword afterward to refine).
+                if multi:
+                    source_filters: list[str] = []
+                    excluded_subs = (
+                        base_settings.get('excluded_subreddits', [])
+                        if platform_value == 'reddit'
+                        else []
+                    )
+                    per_content_types = content_types
+                else:
+                    source_filters = base_settings.get(
+                        'platform_specific_filters', platform_filters
+                    )
+                    excluded_subs = base_settings.get('excluded_subreddits', [])
+                    per_content_types = base_settings.get('content_types', content_types)
+
+                keyword_doc = Keyword(
+                    user_id=user_id,
+                    keyword=keyword_text,
+                    platform=platform_value,
+                    platform_specific_filters=source_filters,
+                    case_sensitive=base_settings.get('case_sensitive', case_sensitive),
+                    match_mode=base_settings.get('match_mode', match_mode),
+                    content_types=per_content_types,
+                    excluded_keywords=base_settings.get('excluded_keywords', []),
+                    excluded_subreddits=excluded_subs,
+                    included_users=base_settings.get('included_users', []),
+                    excluded_users=base_settings.get('excluded_users', []),
+                    included_languages=base_settings.get('included_languages', []),
+                    excluded_languages=base_settings.get('excluded_languages', []),
+                    email_notifications=base_settings.get(
+                        'email_notifications', email_notifications
+                    ),
+                    slack_notifications=base_settings.get(
+                        'slack_notifications', slack_notifications
+                    ),
+                    is_active=enabled,
+                    created_at=timezone.now(),
+                    updated_at=timezone.now(),
+                )
+                keyword_doc.save()
+                created.append(keyword_doc)
+
+            if len(created) == 1:
+                return Response(_keyword_response(created[0]), status=status.HTTP_201_CREATED)
+            return Response(
+                {
+                    'keywords': [_keyword_response(k) for k in created],
+                    'count': len(created),
+                },
+                status=status.HTTP_201_CREATED,
             )
-            keyword.save()
-            return Response(_keyword_response(keyword), status=status.HTTP_201_CREATED)
         except Exception:
-            logger.exception("Failed to create keyword for user %s", user_id)
+            logger.exception("Failed to create keyword(s) for user %s", user_id)
             return Response(
                 {'error': 'An internal error occurred'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -280,6 +346,13 @@ def update_keyword(request, keyword_id, platform=None):
             )
             if error:
                 return error
+            if platform_value != keyword.platform:
+                ok, limit_error = billing_service.check_can_add_keyword(user_id, platform_value)
+                if not ok:
+                    return Response(
+                        {'error': limit_error, 'code': 'plan_limit'},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
             keyword.platform = platform_value
 
         if 'enabled' in data:
@@ -654,3 +727,141 @@ def user_notification_settings(request):
             {'error': 'An internal error occurred'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+@api_view(['GET'])
+def billing_status(request):
+    """Current plan, usage, and limits for the authenticated user."""
+    user_id = _user_id(request)
+    try:
+        return Response(billing_service.billing_status_payload(user_id))
+    except Exception:
+        logger.exception("Failed to load billing status for user %s", user_id)
+        return Response(
+            {'error': 'An internal error occurred'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(['POST'])
+def billing_checkout(request):
+    """Create a Dodo checkout session for Pro."""
+    user_id = _user_id(request)
+    try:
+        profile = billing_service.get_or_create_profile(user_id)
+        if billing_service.resolve_plan(profile) == 'pro':
+            return Response(
+                {'error': 'You are already on the Pro plan.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user_info = clerk_user_service.get_user_info(user_id) or {}
+        email = clerk_user_service.get_user_email(user_id)
+        if not email:
+            return Response(
+                {'error': 'Could not resolve your email for checkout.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        first = (user_info.get('first_name') or '').strip()
+        last = (user_info.get('last_name') or '').strip()
+        name = f"{first} {last}".strip() or email.split('@')[0]
+
+        frontend = (django_settings.FRONTEND_URL or 'http://localhost:3000').rstrip('/')
+        return_url = f"{frontend}/dashboard/settings?billing=success"
+        cancel_url = f"{frontend}/dashboard/settings?billing=cancelled"
+
+        result = dodo_service.create_pro_checkout(
+            customer_email=email,
+            customer_name=name,
+            clerk_user_id=user_id,
+            dodo_customer_id=profile.dodo_customer_id or None,
+            return_url=return_url,
+            cancel_url=cancel_url,
+        )
+        if result.get("customerId") and not profile.dodo_customer_id:
+            profile.dodo_customer_id = result["customerId"]
+            profile.save()
+        return Response(result)
+    except RuntimeError as exc:
+        logger.exception("Checkout misconfiguration for user %s", user_id)
+        return Response({'error': str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    except Exception:
+        logger.exception("Failed to create checkout for user %s", user_id)
+        return Response(
+            {'error': 'Failed to start checkout. Please try again.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(['POST'])
+def billing_portal(request):
+    """Create a Dodo customer portal session for managing subscription."""
+    user_id = _user_id(request)
+    try:
+        profile = billing_service.get_or_create_profile(user_id)
+        if not profile.dodo_customer_id:
+            return Response(
+                {'error': 'No billing account found. Subscribe to Pro first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        frontend = (django_settings.FRONTEND_URL or 'http://localhost:3000').rstrip('/')
+        return_url = f"{frontend}/dashboard/settings"
+        link = dodo_service.create_customer_portal_link(
+            dodo_customer_id=profile.dodo_customer_id,
+            return_url=return_url,
+        )
+        return Response({'portalUrl': link})
+    except RuntimeError as exc:
+        logger.exception("Portal misconfiguration for user %s", user_id)
+        return Response({'error': str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    except Exception:
+        logger.exception("Failed to create portal session for user %s", user_id)
+        return Response(
+            {'error': 'Failed to open billing portal. Please try again.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@throttle_classes([])
+def dodo_webhook(request):
+    """Verify and process Dodo Payments webhooks."""
+    try:
+        headers = {
+            'webhook-id': request.headers.get('webhook-id', ''),
+            'webhook-signature': request.headers.get('webhook-signature', ''),
+            'webhook-timestamp': request.headers.get('webhook-timestamp', ''),
+        }
+        event = dodo_service.unwrap_webhook(request.body, headers)
+    except Exception:
+        logger.exception("Dodo webhook verification failed")
+        return Response({'error': 'Invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
+
+    event_type = getattr(event, 'type', None) or getattr(event, 'event_type', None)
+    data = getattr(event, 'data', None)
+
+    subscription_events = {
+        'subscription.active',
+        'subscription.renewed',
+        'subscription.updated',
+        'subscription.on_hold',
+        'subscription.paused',
+        'subscription.cancelled',
+        'subscription.expired',
+        'subscription.failed',
+        'subscription.plan_changed',
+    }
+
+    try:
+        if event_type in subscription_events and data is not None:
+            billing_service.apply_subscription_event(data)
+        else:
+            logger.info("Ignoring Dodo webhook event type=%s", event_type)
+    except Exception:
+        logger.exception("Failed processing Dodo webhook type=%s", event_type)
+        return Response({'error': 'Processing failed'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    return Response({'received': True})

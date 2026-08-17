@@ -22,6 +22,8 @@ export class ApiUnauthorizedError extends Error {
 export interface KeywordRequest {
   keyword: string;
   platform: Platform;
+  /** When creating, optionally create the same keyword on multiple platforms at once. */
+  platforms?: Platform[];
   platformSpecificFilters?: string[];
   excludedKeywords?: string[];
   excludedSubreddits?: string[];
@@ -127,6 +129,17 @@ export interface UserNotificationSettings {
   notificationFrequency: string;
 }
 
+export interface BillingStatus {
+  plan: "free" | "pro";
+  subscriptionStatus: string | null;
+  dodoCustomerId: string | null;
+  dodoSubscriptionId: string | null;
+  limits: Record<string, number>;
+  usage: Record<string, number>;
+  canUpgrade: boolean;
+  canManageBilling: boolean;
+}
+
 class ApiService {
   private async getHeaders(auth: ApiAuthHandlers): Promise<HeadersInit> {
     const token = await auth.getToken();
@@ -182,10 +195,16 @@ class ApiService {
     return response.json();
   }
 
-  async createKeyword(request: KeywordRequest, auth: ApiAuthHandlers): Promise<Keyword> {
-    const endpoint = request.platform
-      ? `${API_BASE_URL}/api/platforms/${request.platform}/keywords`
-      : `${API_BASE_URL}/api/keywords`;
+  async createKeyword(
+    request: KeywordRequest,
+    auth: ApiAuthHandlers
+  ): Promise<Keyword | { keywords: Keyword[]; count: number }> {
+    const useMulti =
+      Array.isArray(request.platforms) && request.platforms.length > 1;
+    const endpoint =
+      !useMulti && request.platform
+        ? `${API_BASE_URL}/api/platforms/${request.platform}/keywords`
+        : `${API_BASE_URL}/api/keywords`;
 
     const response = await this.request(auth, endpoint, {
       method: "POST",
@@ -351,6 +370,34 @@ class ApiService {
     );
     return this.parseJson(response, "Failed to update notification settings");
   }
+
+  async getBillingStatus(auth: ApiAuthHandlers): Promise<BillingStatus> {
+    const response = await this.request(auth, `${API_BASE_URL}/api/billing/status`, {
+      method: "GET",
+      headers: await this.getHeaders(auth),
+    });
+    return this.parseJson(response, "Failed to fetch billing status");
+  }
+
+  async createBillingCheckout(
+    auth: ApiAuthHandlers
+  ): Promise<{ checkoutUrl: string; sessionId: string }> {
+    const response = await this.request(auth, `${API_BASE_URL}/api/billing/checkout`, {
+      method: "POST",
+      headers: await this.getHeaders(auth),
+    });
+    return this.parseJson(response, "Failed to start checkout");
+  }
+
+  async createBillingPortal(
+    auth: ApiAuthHandlers
+  ): Promise<{ portalUrl: string }> {
+    const response = await this.request(auth, `${API_BASE_URL}/api/billing/portal`, {
+      method: "POST",
+      headers: await this.getHeaders(auth),
+    });
+    return this.parseJson(response, "Failed to open billing portal");
+  }
 }
 
 export const apiService = new ApiService();
@@ -396,6 +443,9 @@ export function useApi() {
       getNotificationSettings: () => apiService.getNotificationSettings(auth),
       updateNotificationSettings: (data: { emailNotifications: boolean }) =>
         apiService.updateNotificationSettings(auth, data),
+      getBillingStatus: () => apiService.getBillingStatus(auth),
+      createBillingCheckout: () => apiService.createBillingCheckout(auth),
+      createBillingPortal: () => apiService.createBillingPortal(auth),
     }),
     [auth]
   );

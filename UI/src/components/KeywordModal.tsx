@@ -35,7 +35,10 @@ type KeywordModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onKeywordSaved: () => void;
+  /** Single platform (edit or platform dashboard). */
   platform?: string;
+  /** Multi-platform create from overview picker. */
+  platforms?: string[];
   keyword?: Keyword;
 };
 
@@ -84,6 +87,7 @@ export default function KeywordModal({
   onClose,
   onKeywordSaved,
   platform,
+  platforms: platformsProp,
   keyword: editKeyword,
 }: KeywordModalProps) {
   const api = useApi();
@@ -126,12 +130,20 @@ export default function KeywordModal({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const activePlatform =
-    (editKeyword?.platform as Platform) ||
-    (platform as Platform) ||
-    Platform.REDDIT;
-  const isReddit = activePlatform === Platform.REDDIT;
-  const showSourceFilters = showPlatformSourceFilters(activePlatform);
+  const selectedPlatforms: Platform[] = React.useMemo(() => {
+    if (editKeyword?.platform) return [editKeyword.platform as Platform];
+    if (platformsProp && platformsProp.length > 0) {
+      return platformsProp.map((p) => p as Platform);
+    }
+    if (platform) return [platform as Platform];
+    return [Platform.REDDIT];
+  }, [editKeyword, platformsProp, platform]);
+
+  const isMultiPlatform = !editKeyword && selectedPlatforms.length > 1;
+  const activePlatform = selectedPlatforms[0] || Platform.REDDIT;
+  const isReddit = selectedPlatforms.includes(Platform.REDDIT);
+  const showSourceFilters =
+    !isMultiPlatform && showPlatformSourceFilters(activePlatform);
   const availableContentTypes = getAvailableContentTypes(activePlatform);
 
   const resetForm = (source?: Keyword) => {
@@ -170,7 +182,7 @@ export default function KeywordModal({
 
   React.useEffect(() => {
     resetForm(editKeyword);
-  }, [editKeyword, platform]);
+  }, [editKeyword, platform, platformsProp]);
 
   React.useEffect(() => {
     if (isOpen) {
@@ -179,12 +191,13 @@ export default function KeywordModal({
     }
   }, [isOpen]);
 
-  const buildRequest = (): KeywordRequest => ({
+  const buildRequest = (targetPlatform: Platform): KeywordRequest => ({
     keyword: keyword.trim(),
-    platform: activePlatform,
-    platformSpecificFilters: platformFilters,
+    platform: targetPlatform,
+    platforms: isMultiPlatform ? selectedPlatforms : undefined,
+    platformSpecificFilters: isMultiPlatform ? [] : platformFilters,
     excludedKeywords: excludedKeywords,
-    excludedSubreddits: excludedSubreddits,
+    excludedSubreddits: isReddit ? excludedSubreddits : [],
     includedUsers: includedUsers,
     excludedUsers: excludedUsers,
     includedLanguages: includedLanguages,
@@ -207,11 +220,12 @@ export default function KeywordModal({
     setError(null);
 
     try {
-      const request = buildRequest();
       if (editKeyword) {
-        await api.updateKeyword(editKeyword.id, request);
+        await api.updateKeyword(editKeyword.id, buildRequest(activePlatform));
+      } else if (isMultiPlatform) {
+        await api.createKeyword(buildRequest(selectedPlatforms[0]));
       } else {
-        await api.createKeyword(request);
+        await api.createKeyword(buildRequest(activePlatform));
       }
       resetForm();
       onClose();
@@ -292,6 +306,19 @@ export default function KeywordModal({
               <p className="text-sm text-red-600">Keyword is required to continue</p>
             )}
           </div>
+
+          {isMultiPlatform && (
+            <div className="rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2.5">
+              <p className="text-xs font-medium text-indigo-800 mb-1.5">Creating on</p>
+              <div className="flex flex-wrap gap-1.5">
+                {selectedPlatforms.map((p) => (
+                  <Badge key={p} variant="outline" className="bg-white">
+                    {PlatformLabels[p]}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
 
           {showSourceFilters ? (
             <div className="space-y-2">
@@ -511,8 +538,10 @@ export default function KeywordModal({
               <p className="font-medium text-slate-900">{keyword}</p>
             </div>
             <div>
-              <p className="text-slate-500">Platform</p>
-              <p className="font-medium text-slate-900">{PlatformLabels[activePlatform]}</p>
+              <p className="text-slate-500">Platform{selectedPlatforms.length > 1 ? "s" : ""}</p>
+              <p className="font-medium text-slate-900">
+                {selectedPlatforms.map((p) => PlatformLabels[p]).join(", ")}
+              </p>
             </div>
             <div className="col-span-2">
               {showSourceFilters && (
@@ -520,6 +549,12 @@ export default function KeywordModal({
                   <p className="text-slate-500">{PlatformFilterLabels[activePlatform]}</p>
                   <ChipList items={platformFilters} />
                 </>
+              )}
+              {isMultiPlatform && (
+                <p className="text-xs text-slate-500">
+                  Platform-specific source filters (subreddits, accounts, channels) can be set
+                  afterward by editing each keyword.
+                </p>
               )}
             </div>
             <div className="col-span-2">
@@ -593,7 +628,9 @@ export default function KeywordModal({
           <p className="text-sm text-slate-500">
             {editKeyword
               ? `Update settings for "${editKeyword.keyword}"`
-              : `Monitor on ${PlatformLabels[activePlatform]}`}
+              : isMultiPlatform
+                ? `Monitor on ${selectedPlatforms.map((p) => PlatformLabels[p]).join(", ")}`
+                : `Monitor on ${PlatformLabels[activePlatform]}`}
           </p>
         </DialogHeader>
 
@@ -664,7 +701,15 @@ export default function KeywordModal({
                 disabled={isLoading}
                 className="h-10 bg-indigo-600 text-white hover:bg-indigo-700 border border-indigo-600"
               >
-                {isLoading ? (editKeyword ? "Updating..." : "Adding...") : (editKeyword ? "Update" : "Add Keyword")}
+                {isLoading
+                  ? editKeyword
+                    ? "Updating..."
+                    : "Adding..."
+                  : editKeyword
+                    ? "Update"
+                    : isMultiPlatform
+                      ? `Add to ${selectedPlatforms.length} platforms`
+                      : "Add Keyword"}
               </Button>
             )}
           </div>

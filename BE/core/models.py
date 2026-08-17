@@ -177,6 +177,11 @@ class UserProfile(Document):
         default=NotificationFrequencyChoices.INSTANT[0],
         help_text="How often to send notifications"
     )
+    # Billing (Dodo Payments)
+    plan = StringField(default='free', help_text="Current plan: free | pro")
+    dodo_customer_id = StringField(help_text="Dodo Payments customer id")
+    dodo_subscription_id = StringField(help_text="Dodo Payments subscription id")
+    subscription_status = StringField(help_text="Latest Dodo subscription status")
     created_at = DateTimeField(default=timezone.now)
     updated_at = DateTimeField(default=timezone.now)
     
@@ -184,7 +189,9 @@ class UserProfile(Document):
         'collection': 'user_profiles',
         'indexes': [
             ('user_id',),
-            ('email_notifications',)
+            ('email_notifications',),
+            ('dodo_customer_id',),
+            ('dodo_subscription_id',),
         ]
     }
     
