@@ -59,31 +59,48 @@ class HackerNewsService:
         self.stream_thread.start()
     
     def stop_real_time_streaming(self):
-        """Stop real-time streaming"""
-        if not self.is_streaming:
+        """Stop real-time streaming.
+
+        The streaming thread owns the event loop and closes the aiohttp session in
+        its finally block. After join(), the loop is already closed — never call
+        run_coroutine_threadsafe on it here.
+        """
+        if not self.is_streaming and not (self.stream_thread and self.stream_thread.is_alive()):
             return
-        
+
         self.is_streaming = False
         logger.info("⏹️ Stopping HackerNews real-time streaming")
-        
+
         if self.stream_thread and self.stream_thread.is_alive():
-            self.stream_thread.join(timeout=10)
-        
-        if self.session:
-            asyncio.run_coroutine_threadsafe(self.session.close(), self.stream_loop)
-    
+            self.stream_thread.join(timeout=15)
+
+        self.stream_thread = None
+        self.stream_loop = None
+        self.session = None
+
     def _run_streaming_loop(self, keywords: List[Keyword]):
         """Run the async streaming loop in a separate thread"""
+        loop = None
         try:
-            self.stream_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.stream_loop)
-            self.stream_loop.run_until_complete(self._stream_hackernews_items(keywords))
+            loop = asyncio.new_event_loop()
+            self.stream_loop = loop
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self._stream_hackernews_items(keywords))
         except Exception as e:
             logger.error(f"Error in streaming loop: {e}")
         finally:
-            if self.stream_loop:
-                self.stream_loop.close()
-    
+            try:
+                if self.session and not self.session.closed and loop and not loop.is_closed():
+                    loop.run_until_complete(self.session.close())
+            except Exception:
+                logger.debug("HN session close during shutdown failed", exc_info=True)
+            self.session = None
+            if loop and not loop.is_closed():
+                loop.close()
+            if self.stream_loop is loop:
+                self.stream_loop = None
+            self.is_streaming = False
+
     async def _stream_hackernews_items(self, keywords: List[Keyword]):
         """Stream all new HackerNews items and filter for keywords"""
         try:
@@ -125,10 +142,7 @@ class HackerNewsService:
                     
         except Exception as e:
             logger.error(f"Error setting up streaming: {e}")
-        finally:
-            if self.session:
-                await self.session.close()
-    
+        # Session closed by _run_streaming_loop finally (owns the loop lifecycle).
     async def _fetch_max_item(self) -> int:
         """Fetch the current maximum item ID"""
         try:
@@ -177,7 +191,7 @@ class HackerNewsService:
             return None
     
     async def _process_item(self, item: Dict[str, Any], keywords: List[Keyword]):
-        "Process a single HackerNews item and check for keyword matches"""
+        """Process a single HackerNews item and check for keyword matches"""
         try:
             item_type = item.get("type")
             item_time = item.get("time", 0)

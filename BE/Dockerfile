@@ -38,7 +38,15 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends curl \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --system --gid 1001 app \
-  && useradd --system --uid 1001 --gid app --create-home --home-dir /app app
+  && useradd --system --uid 1001 --gid app --create-home --home-dir /home/app app \
+  && mkdir -p /home/app/.local/share /home/app/.cache /tmp/chrome-user-data \
+  && chown -R app:app /home/app /tmp/chrome-user-data
+
+ENV HOME=/home/app \
+    XDG_CACHE_HOME=/home/app/.cache \
+    XDG_CONFIG_HOME=/home/app/.config \
+    XDG_DATA_HOME=/home/app/.local/share \
+    CHROME_USER_DATA_DIR=/tmp/chrome-user-data
 
 COPY --from=builder /opt/venv /opt/venv
 COPY --chown=app:app . .
@@ -83,7 +91,16 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 ENV CHROME_BIN=/usr/bin/google-chrome \
-    CHROME_PATH=/usr/bin/google-chrome
+    CHROME_PATH=/usr/bin/google-chrome \
+    HOME=/home/app \
+    XDG_CACHE_HOME=/home/app/.cache \
+    XDG_CONFIG_HOME=/home/app/.config \
+    XDG_DATA_HOME=/home/app/.local/share \
+    CHROME_USER_DATA_DIR=/tmp/chrome-user-data
+
+# Ensure Chrome/undetected-chromedriver can write under a real home + tmp profile.
+RUN mkdir -p /home/app/.local/share /home/app/.cache /tmp/chrome-user-data \
+  && chown -R app:app /home/app /tmp/chrome-user-data
 
 USER app
 

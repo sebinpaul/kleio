@@ -58,21 +58,48 @@ def _unique_preserve_order(items: List[str]) -> List[str]:
 
 
 def _get_chrome_version() -> Optional[int]:
-    try:
-        result = subprocess.run([
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-            "--version",
-        ], capture_output=True, text=True)
-        if result.returncode == 0:
-            version = re.search(r"(\d+)", result.stdout)
-            return int(version.group(1)) if version else None
-    except Exception:
-        pass
+    candidates = [
+        os.getenv("CHROME_BIN"),
+        os.getenv("CHROME_PATH"),
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    ]
+    for binary in candidates:
+        if not binary:
+            continue
+        try:
+            result = subprocess.run(
+                [binary, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                version = re.search(r"(\d+)", result.stdout or result.stderr or "")
+                if version:
+                    return int(version.group(1))
+        except Exception:
+            continue
     return None
+
+
+def _chrome_user_data_dir(explicit: Optional[str] = None, *, suffix: str = "tw") -> str:
+    """Writable Chrome profile dir — never use the read-only app tree in Docker."""
+    import tempfile
+
+    preferred = explicit or os.getenv("CHROME_USER_DATA_DIR")
+    if preferred:
+        path = os.path.join(preferred, suffix) if not explicit else preferred
+        os.makedirs(path, exist_ok=True)
+        return path
+    return tempfile.mkdtemp(prefix=f"kleio-chrome-{suffix}-")
 
 
 def _create_driver(headless: bool = True, user_data_dir: Optional[str] = None):
     import undetected_chromedriver as uc
+
     options = uc.ChromeOptions()
     options.headless = headless
     options.add_argument("--no-sandbox")
@@ -82,15 +109,17 @@ def _create_driver(headless: bool = True, user_data_dir: Optional[str] = None):
     options.add_argument("--disable-extensions")
     options.add_argument("--window-size=1920,1080")
     options.add_argument(
-        "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
     )
     if headless:
         options.add_argument("--headless=new")
-    if user_data_dir:
-        options.add_argument(f"--user-data-dir={user_data_dir}")
+
+    data_dir = _chrome_user_data_dir(user_data_dir, suffix="tw")
+    options.add_argument(f"--user-data-dir={data_dir}")
 
     browser_path = os.getenv("CHROME_BIN") or os.getenv("CHROME_PATH")
-    chrome_kwargs = {"options": options}
+    chrome_kwargs: Dict[str, Any] = {"options": options}
     if browser_path:
         chrome_kwargs["browser_executable_path"] = browser_path
 
