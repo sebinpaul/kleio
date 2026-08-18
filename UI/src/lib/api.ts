@@ -19,6 +19,21 @@ export class ApiUnauthorizedError extends Error {
   }
 }
 
+export class ApiError extends Error {
+  code?: string;
+  platform?: string;
+
+  constructor(
+    message: string,
+    opts?: { code?: string; platform?: string }
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.code = opts?.code;
+    this.platform = opts?.platform;
+  }
+}
+
 export interface KeywordRequest {
   keyword: string;
   platform: Platform;
@@ -136,6 +151,7 @@ export interface BillingStatus {
   dodoSubscriptionId: string | null;
   limits: Record<string, number>;
   usage: Record<string, number>;
+  remaining?: Record<string, number>;
   canUpgrade: boolean;
   canManageBilling: boolean;
 }
@@ -172,6 +188,8 @@ class ApiService {
   private async parseJson<T>(response: Response, fallbackMessage: string): Promise<T> {
     if (!response.ok) {
       let message = fallbackMessage;
+      let code: string | undefined;
+      let platform: string | undefined;
       if (response.status === 429) {
         message = "Too many requests. Please wait a moment and try again.";
       }
@@ -182,10 +200,12 @@ class ApiService {
         } else if (typeof body?.detail === "string") {
           message = body.detail;
         }
+        if (typeof body?.code === "string") code = body.code;
+        if (typeof body?.platform === "string") platform = body.platform;
       } catch {
         // use fallback
       }
-      throw new Error(message);
+      throw new ApiError(message, { code, platform });
     }
 
     if (response.status === 204) {

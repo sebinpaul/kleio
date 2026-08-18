@@ -49,29 +49,56 @@ def keyword_usage(user_id: str) -> dict[str, int]:
 
 def check_can_add_keyword(user_id: str, platform: str) -> tuple[bool, str | None]:
     """Return (ok, error_message). platform may be a single platform or 'all'."""
+    ok, err, _ = check_can_add_keywords(user_id, [platform])
+    return ok, err
+
+
+def check_can_add_keywords(
+    user_id: str, platforms: list[str]
+) -> tuple[bool, str | None, str | None]:
+    """
+    Hard-check plan limits for one or more platforms in a single create.
+
+    Counts projected usage so multi-create cannot exceed the cap.
+    Returns (ok, error_message, platform_or_none).
+    """
     profile = get_or_create_profile(user_id)
     plan = resolve_plan(profile)
     limits = limits_for_plan(plan)
     usage = keyword_usage(user_id)
+    projected = dict(usage)
 
-    platforms_to_check = list(METERED_PLATFORMS) if platform == "all" else [platform]
-    for p in platforms_to_check:
+    expanded: list[str] = []
+    for platform in platforms:
+        if platform == "all":
+            expanded.extend(METERED_PLATFORMS)
+        else:
+            expanded.append(platform)
+
+    for p in expanded:
         if p not in limits:
             continue
         limit = limits[p]
         label = PLATFORM_LABELS.get(p, p)
         if limit <= 0:
             if plan == PLAN_FREE:
-                return False, (
-                    f"{label} monitoring requires Pro. Upgrade to add {label} keywords."
+                return (
+                    False,
+                    f"{label} monitoring requires Pro. Upgrade to add {label} keywords.",
+                    p,
                 )
-            return False, f"{label} keywords are not available on your plan."
-        if usage[p] >= limit:
-            return False, (
-                f"You've reached the {label} keyword limit ({limit}) on the "
-                f"{plan.capitalize()} plan. Upgrade or remove a keyword to continue."
+            return False, f"{label} keywords are not available on your plan.", p
+        if projected[p] >= limit:
+            return (
+                False,
+                (
+                    f"You've reached the {label} keyword limit ({limit}) on the "
+                    f"{plan.capitalize()} plan. Upgrade or remove a keyword to continue."
+                ),
+                p,
             )
-    return True, None
+        projected[p] += 1
+    return True, None, None
 
 
 def billing_status_payload(user_id: str) -> dict[str, Any]:
@@ -79,6 +106,9 @@ def billing_status_payload(user_id: str) -> dict[str, Any]:
     plan = resolve_plan(profile)
     limits = limits_for_plan(plan)
     usage = keyword_usage(user_id)
+    remaining = {
+        p: max(0, limits.get(p, 0) - usage.get(p, 0)) for p in METERED_PLATFORMS
+    }
     return {
         "plan": plan,
         "subscriptionStatus": profile.subscription_status,
@@ -86,6 +116,7 @@ def billing_status_payload(user_id: str) -> dict[str, Any]:
         "dodoSubscriptionId": profile.dodo_subscription_id,
         "limits": limits,
         "usage": usage,
+        "remaining": remaining,
         "canUpgrade": plan != PLAN_PRO,
         "canManageBilling": bool(profile.dodo_customer_id),
     }

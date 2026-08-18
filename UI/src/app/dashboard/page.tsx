@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { platforms } from "@/lib/platforms";
 import KeywordOverview, { KeywordOverviewRef } from "@/components/KeywordOverview";
@@ -9,17 +9,37 @@ import KeywordModal from "@/components/KeywordModal";
 import AddKeywordPlatformPicker from "@/components/AddKeywordPlatformPicker";
 import { Platform } from "@/lib/enums";
 import { Button } from "@/components/ui/button";
+import { useApi, ApiUnauthorizedError, type BillingStatus } from "@/lib/api";
+import { BILLING_UPGRADE_HREF, canAddAnyKeyword } from "@/lib/billing";
 
 export default function Dashboard() {
+  const api = useApi();
   const overviewRef = useRef<KeywordOverviewRef>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([]);
+  const [billing, setBilling] = useState<BillingStatus | null>(null);
+
+  const loadBilling = useCallback(async () => {
+    try {
+      const status = await api.getBillingStatus();
+      setBilling(status);
+    } catch (err) {
+      if (err instanceof ApiUnauthorizedError) return;
+    }
+  }, [api]);
+
+  useEffect(() => {
+    loadBilling();
+  }, [loadBilling]);
+
+  const canAdd = canAddAnyKeyword(billing);
 
   const handleKeywordSaved = () => {
     setModalOpen(false);
     setSelectedPlatforms([]);
     overviewRef.current?.refresh();
+    loadBilling();
   };
 
   return (
@@ -32,6 +52,16 @@ export default function Dashboard() {
       </div>
 
       <div className="px-8 py-8 space-y-8">
+        {!canAdd && billing && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            You&apos;ve hit your keyword limits on every available platform.{" "}
+            <Link href={BILLING_UPGRADE_HREF} className="font-semibold underline">
+              Upgrade your plan
+            </Link>{" "}
+            or remove a keyword to add more.
+          </div>
+        )}
+
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {platforms.map((p) => (
             <Link
@@ -60,7 +90,8 @@ export default function Dashboard() {
             </div>
             <Button
               onClick={() => setPickerOpen(true)}
-              className="gradient-button px-5 py-2.5 text-sm font-medium"
+              disabled={!canAdd}
+              className="gradient-button px-5 py-2.5 text-sm font-medium disabled:opacity-50"
             >
               Add Keyword
             </Button>

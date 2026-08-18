@@ -9,7 +9,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useApi, KeywordRequest, Keyword, ApiUnauthorizedError } from "@/lib/api";
+import { useApi, KeywordRequest, Keyword, ApiUnauthorizedError, ApiError } from "@/lib/api";
+import Link from "next/link";
+import { BILLING_UPGRADE_HREF } from "@/lib/billing";
 import {
   Platform,
   PlatformLabels,
@@ -129,6 +131,7 @@ export default function KeywordModal({
   );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [planLimitHit, setPlanLimitHit] = useState(false);
 
   const selectedPlatforms: Platform[] = React.useMemo(() => {
     if (editKeyword?.platform) return [editKeyword.platform as Platform];
@@ -178,6 +181,7 @@ export default function KeywordModal({
     }
     setCurrentStep(1);
     setError(null);
+    setPlanLimitHit(false);
   };
 
   React.useEffect(() => {
@@ -188,6 +192,7 @@ export default function KeywordModal({
     if (isOpen) {
       setCurrentStep(1);
       setError(null);
+      setPlanLimitHit(false);
     }
   }, [isOpen]);
 
@@ -218,6 +223,7 @@ export default function KeywordModal({
 
     setIsLoading(true);
     setError(null);
+    setPlanLimitHit(false);
 
     try {
       if (editKeyword) {
@@ -233,6 +239,9 @@ export default function KeywordModal({
     } catch (err) {
       if (err instanceof ApiUnauthorizedError) return;
       console.error(editKeyword ? "Error updating keyword:" : "Error creating keyword:", err);
+      if (err instanceof ApiError && err.code === "plan_limit") {
+        setPlanLimitHit(true);
+      }
       setError(
         err instanceof Error
           ? err.message
@@ -670,7 +679,18 @@ export default function KeywordModal({
           <div className="flex-1 overflow-y-auto px-5 py-4 min-h-0">
             {error && (
               <div className="text-sm text-red-700 bg-red-50 p-3 rounded-lg border border-red-200 mb-4">
-                {error}
+                <p>{error}</p>
+                {planLimitHit && (
+                  <p className="mt-2">
+                    <Link
+                      href={BILLING_UPGRADE_HREF}
+                      className="font-semibold underline text-indigo-700"
+                    >
+                      Upgrade your plan
+                    </Link>{" "}
+                    to raise limits.
+                  </p>
+                )}
               </div>
             )}
             {renderStepContent()}

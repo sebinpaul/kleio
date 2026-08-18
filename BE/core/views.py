@@ -213,14 +213,19 @@ def get_keywords(request, platform=None):
         if error:
             return error
 
-        # Preflight plan limits for every target platform
-        for platform_value in platforms_list:
-            ok, limit_error = billing_service.check_can_add_keyword(user_id, platform_value)
-            if not ok:
-                return Response(
-                    {'error': limit_error, 'code': 'plan_limit', 'platform': platform_value},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+        # Hard plan limits for every target platform (projected usage)
+        ok, limit_error, limit_platform = billing_service.check_can_add_keywords(
+            user_id, platforms_list
+        )
+        if not ok:
+            return Response(
+                {
+                    'error': limit_error,
+                    'code': 'plan_limit',
+                    'platform': limit_platform,
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         created = []
         multi = len(platforms_list) > 1
@@ -347,10 +352,16 @@ def update_keyword(request, keyword_id, platform=None):
             if error:
                 return error
             if platform_value != keyword.platform:
-                ok, limit_error = billing_service.check_can_add_keyword(user_id, platform_value)
+                ok, limit_error, _ = billing_service.check_can_add_keywords(
+                    user_id, [platform_value]
+                )
                 if not ok:
                     return Response(
-                        {'error': limit_error, 'code': 'plan_limit'},
+                        {
+                            'error': limit_error,
+                            'code': 'plan_limit',
+                            'platform': platform_value,
+                        },
                         status=status.HTTP_403_FORBIDDEN,
                     )
             keyword.platform = platform_value

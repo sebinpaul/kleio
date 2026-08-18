@@ -1,12 +1,14 @@
 "use client";
 
-import React, { ReactNode, useRef, useState } from "react";
+import React, { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "./ui/button";
 import KeywordOverview, { KeywordOverviewRef } from "@/components/KeywordOverview";
 import MentionsFeed from "@/components/MentionsFeed";
 import KeywordModal from "./KeywordModal";
 import { Platform } from "@/lib/enums";
+import { useApi, ApiUnauthorizedError, type BillingStatus } from "@/lib/api";
+import { BILLING_UPGRADE_HREF, canAddOnPlatform, platformQuota } from "@/lib/billing";
 
 interface PlatformDashboardProps {
   platform: {
@@ -19,12 +21,36 @@ interface PlatformDashboardProps {
 }
 
 export default function PlatformDashboard({ platform }: PlatformDashboardProps) {
+  const api = useApi();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [billing, setBilling] = useState<BillingStatus | null>(null);
   const overviewRef = useRef<KeywordOverviewRef>(null);
+
+  const loadBilling = useCallback(async () => {
+    try {
+      const status = await api.getBillingStatus();
+      setBilling(status);
+    } catch (err) {
+      if (err instanceof ApiUnauthorizedError) return;
+    }
+  }, [api]);
+
+  useEffect(() => {
+    loadBilling();
+  }, [loadBilling]);
+
+  const quota = platformQuota(billing, platform.id);
+  const canAdd = canAddOnPlatform(billing, platform.id);
 
   const handleKeywordSaved = () => {
     setIsAddModalOpen(false);
     overviewRef.current?.refresh();
+    loadBilling();
+  };
+
+  const handleAddClick = () => {
+    if (!canAdd) return;
+    setIsAddModalOpen(true);
   };
 
   return (
@@ -44,17 +70,54 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
       </div>
 
       <div className="px-8 py-8">
+        {!canAdd && billing && (
+          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            {quota.locked ? (
+              <>
+                {platform.name} monitoring requires Pro.{" "}
+                <Link href={BILLING_UPGRADE_HREF} className="font-semibold underline">
+                  Upgrade to add keywords
+                </Link>
+                .
+              </>
+            ) : (
+              <>
+                You&apos;ve used {quota.used} / {quota.limit} {platform.name} keywords on your
+                plan.{" "}
+                <Link href={BILLING_UPGRADE_HREF} className="font-semibold underline">
+                  Upgrade
+                </Link>{" "}
+                or remove a keyword to continue.
+              </>
+            )}
+          </div>
+        )}
+
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
             <div>
               <h2 className="text-lg font-semibold text-slate-900">Keyword analytics</h2>
               <p className="text-sm text-slate-500 mt-0.5">
                 Mentions over time, last activity, and status for your {platform.name} keywords
+                {billing && !quota.locked && (
+                  <span className="text-slate-400">
+                    {" "}
+                    · {quota.used}/{quota.limit} used
+                  </span>
+                )}
               </p>
             </div>
             <Button
-              onClick={() => setIsAddModalOpen(true)}
-              className="gradient-button px-5 py-2.5 text-sm font-medium"
+              onClick={handleAddClick}
+              disabled={!canAdd}
+              title={
+                !canAdd
+                  ? quota.locked
+                    ? "Requires Pro"
+                    : "Plan limit reached"
+                  : undefined
+              }
+              className="gradient-button px-5 py-2.5 text-sm font-medium disabled:opacity-50"
             >
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -67,7 +130,7 @@ export default function PlatformDashboard({ platform }: PlatformDashboardProps) 
             <KeywordOverview
               ref={overviewRef}
               platform={platform.id}
-              onAddKeyword={() => setIsAddModalOpen(true)}
+              onAddKeyword={canAdd ? () => setIsAddModalOpen(true) : undefined}
             />
           </div>
         </div>

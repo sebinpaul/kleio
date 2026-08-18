@@ -233,6 +233,7 @@ const pricingPlans = [
     description: "Try real-time alerts on Reddit and Hacker News.",
     cta: "Start Free",
     featured: false,
+    href: "/dashboard/settings#billing",
     features: [
       "Reddit: 2 keyword alerts",
       "Hacker News: 2 keyword alerts",
@@ -249,6 +250,7 @@ const pricingPlans = [
     description: "Full platform coverage for founders who need to catch every mention.",
     cta: "Get Pro",
     featured: true,
+    href: "/dashboard/settings?upgrade=pro#billing",
     features: [
       "Reddit: 20 keyword alerts",
       "Hacker News: 20 keyword alerts",
@@ -266,6 +268,7 @@ const pricingPlans = [
     description: "Higher limits plus team workflows and integrations.",
     cta: "Get Business",
     featured: false,
+    href: null as string | null,
     features: [
       "Reddit: 100 keyword alerts",
       "Hacker News: 100 keyword alerts",
@@ -886,15 +889,19 @@ function PricingSection() {
         </Reveal>
 
         <div className="grid lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
-          {pricingPlans.map((plan, i) => (
-            <Reveal key={plan.name} delay={i * 100}>
-              <div
-                className={`relative h-full rounded-2xl border p-6 flex flex-col ${
-                  plan.featured
-                    ? "border-indigo-200 bg-indigo-50/30 shadow-lg shadow-indigo-100/50 ring-1 ring-indigo-100"
-                    : "border-slate-200 bg-white"
-                }`}
-              >
+          {pricingPlans.map((plan, i) => {
+            const cardClass = `relative h-full rounded-2xl border p-6 flex flex-col transition-all ${
+              plan.featured
+                ? "border-indigo-200 bg-indigo-50/30 shadow-lg shadow-indigo-100/50 ring-1 ring-indigo-100"
+                : "border-slate-200 bg-white"
+            } ${
+              plan.href
+                ? "cursor-pointer hover:border-indigo-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                : "opacity-95"
+            }`;
+
+            const cardInner = (
+              <>
                 {plan.featured && (
                   <>
                     <ShineBorder
@@ -944,43 +951,49 @@ function PricingSection() {
                   ))}
                 </ul>
 
-                {plan.name === "Business" ? (
+                {!plan.href ? (
                   <Button
                     variant="outline"
                     size="lg"
-                    className="w-full rounded-xl"
+                    className="w-full rounded-xl pointer-events-none"
                     disabled
                   >
                     Coming soon
                   </Button>
-                ) : (
-                  <Link
-                    href={
-                      plan.name === "Pro"
-                        ? "/dashboard/settings?upgrade=pro"
-                        : "/sign-up"
-                    }
+                ) : plan.featured ? (
+                  <ShimmerButton
+                    background="rgba(79, 70, 229, 1)"
+                    borderRadius="0.75rem"
+                    className="w-full h-11 px-8 pointer-events-none"
+                    shimmerColor="rgb(14, 196, 203)"
+                    shimmerSize="0.2em"
                   >
-                    {plan.featured ? (
-                      <ShimmerButton
-                        background="rgba(79, 70, 229, 1)"
-                        borderRadius="0.75rem"
-                        className="w-full h-11 px-8"
-                        shimmerColor="rgb(14, 196, 203)"
-                        shimmerSize="0.2em"
-                      >
-                        {plan.cta}
-                      </ShimmerButton>
-                    ) : (
-                      <Button variant="outline" size="lg" className="w-full rounded-xl">
-                        {plan.cta}
-                      </Button>
-                    )}
-                  </Link>
+                    {plan.cta}
+                  </ShimmerButton>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    className="w-full rounded-xl pointer-events-none"
+                  >
+                    {plan.cta}
+                  </Button>
                 )}
-              </div>
-            </Reveal>
-          ))}
+              </>
+            );
+
+            return (
+              <Reveal key={plan.name} delay={i * 100}>
+                {plan.href ? (
+                  <Link href={plan.href} className={cardClass} aria-label={`${plan.cta} — go to billing`}>
+                    {cardInner}
+                  </Link>
+                ) : (
+                  <div className={cardClass}>{cardInner}</div>
+                )}
+              </Reveal>
+            );
+          })}
         </div>
       </div>
     </section>
