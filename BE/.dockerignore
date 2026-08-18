@@ -25,6 +25,7 @@ Dockerfile
 dockerfile
 .dockerignore
 scripts
+!scripts/install_chromedriver.py
 **/tests
 **/test_*.py
 README.md
