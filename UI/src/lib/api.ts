@@ -145,10 +145,11 @@ export interface UserNotificationSettings {
 }
 
 export interface BillingStatus {
-  plan: "free" | "pro";
+  plan: "free" | "pro" | "business";
   subscriptionStatus: string | null;
   dodoCustomerId: string | null;
   dodoSubscriptionId: string | null;
+  dodoProductId?: string | null;
   cancelAtPeriodEnd?: boolean;
   nextBillingDate?: string | null;
   needsKeywordSelection?: boolean;
@@ -157,6 +158,8 @@ export interface BillingStatus {
   totalUsage?: Record<string, number>;
   remaining?: Record<string, number>;
   canUpgrade: boolean;
+  canUpgradePro?: boolean;
+  canUpgradeBusiness?: boolean;
   canReactivate?: boolean;
   canManageBilling: boolean;
 }
@@ -179,7 +182,7 @@ export interface KeywordSelectionPlatform {
 }
 
 export interface KeywordSelectionPayload {
-  plan: "free" | "pro";
+  plan: "free" | "pro" | "business";
   needsKeywordSelection: boolean;
   platforms: KeywordSelectionPlatform[];
   limits: Record<string, number>;
@@ -445,11 +448,20 @@ class ApiService {
   }
 
   async createBillingCheckout(
-    auth: ApiAuthHandlers
-  ): Promise<{ checkoutUrl?: string; sessionId?: string; reactivated?: boolean } & Partial<BillingStatus>> {
+    auth: ApiAuthHandlers,
+    plan: "pro" | "business" = "pro"
+  ): Promise<
+    {
+      checkoutUrl?: string;
+      sessionId?: string;
+      reactivated?: boolean;
+      changedPlan?: boolean;
+    } & Partial<BillingStatus>
+  > {
     const response = await this.request(auth, `${API_BASE_URL}/api/billing/checkout`, {
       method: "POST",
       headers: await this.getHeaders(auth),
+      body: JSON.stringify({ plan }),
     });
     return this.parseJson(response, "Failed to start checkout");
   }
@@ -539,7 +551,8 @@ export function useApi() {
       getBillingStatus: () => apiService.getBillingStatus(auth),
       syncBillingStatus: () => apiService.syncBillingStatus(auth),
       reactivateBilling: () => apiService.reactivateBilling(auth),
-      createBillingCheckout: () => apiService.createBillingCheckout(auth),
+      createBillingCheckout: (plan: "pro" | "business" = "pro") =>
+        apiService.createBillingCheckout(auth, plan),
       createBillingPortal: () => apiService.createBillingPortal(auth),
       getKeywordSelection: () => apiService.getKeywordSelection(auth),
       applyKeywordSelection: (keepIds: string[]) =>

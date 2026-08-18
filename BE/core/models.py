@@ -178,13 +178,14 @@ class UserProfile(Document):
         help_text="How often to send notifications"
     )
     # Billing (Dodo Payments)
-    plan = StringField(default='free', help_text="Current plan: free | pro")
+    plan = StringField(default='free', help_text="Current plan: free | pro | business")
     dodo_customer_id = StringField(help_text="Dodo Payments customer id")
     dodo_subscription_id = StringField(help_text="Dodo Payments subscription id")
+    dodo_product_id = StringField(help_text="Dodo product id for the active subscription")
     subscription_status = StringField(help_text="Latest Dodo subscription status")
     cancel_at_period_end = BooleanField(
         default=False,
-        help_text="True when Pro is scheduled to cancel at next billing date",
+        help_text="True when paid plan is scheduled to cancel at next billing date",
     )
     next_billing_date = StringField(
         help_text="ISO next billing / access-end date from Dodo"

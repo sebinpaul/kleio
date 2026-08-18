@@ -166,7 +166,9 @@ class BillingLimitsTests(MongoTestCase):
         payload = billing_service.billing_status_payload("u8")
         self.assertTrue(payload["cancelAtPeriodEnd"])
         self.assertTrue(payload["canReactivate"])
-        self.assertFalse(payload["canUpgrade"])
+        self.assertFalse(payload["canUpgradePro"])
+        self.assertTrue(payload["canUpgradeBusiness"])
+        self.assertTrue(payload["canUpgrade"])
 
     @patch("core.services.dodo_service.reactivate_subscription")
     def test_reactivate_clears_cancel_flag(self, mock_reactivate):
@@ -246,6 +248,64 @@ class BillingLimitsTests(MongoTestCase):
         self.assertFalse(k3.is_active)
         self.assertFalse(tw.is_active)
         self.assertTrue(hn.is_active)
+
+    def test_business_product_maps_and_limits(self):
+        profile = billing_service.get_or_create_profile("u12")
+        profile.dodo_customer_id = "cus_12"
+        profile.save()
+
+        class FakeCustomer:
+            customer_id = "cus_12"
+
+        class FakeSub:
+            subscription_id = "sub_12"
+            status = "active"
+            product_id = "pdt_business_test"
+            customer = FakeCustomer()
+            metadata = {"clerk_user_id": "u12"}
+
+        with self.settings(DODO_BUSINESS_PRODUCT_ID="pdt_business_test"):
+            billing_service.apply_subscription_event(FakeSub())
+            profile.reload()
+            self.assertEqual(profile.plan, "business")
+            self.assertEqual(billing_service.resolve_plan(profile), "business")
+            self.assertEqual(profile.dodo_product_id, "pdt_business_test")
+            ok, err = billing_service.check_can_add_keyword("u12", "twitter")
+            self.assertTrue(ok)
+            payload = billing_service.billing_status_payload("u12")
+            self.assertEqual(payload["limits"]["reddit"], 100)
+            self.assertEqual(payload["limits"]["twitter"], 10)
+            self.assertFalse(payload["canUpgradeBusiness"])
+            self.assertFalse(payload["canUpgradePro"])
+
+    def test_business_to_free_requires_selection(self):
+        profile = billing_service.get_or_create_profile("u13")
+        profile.plan = "business"
+        profile.subscription_status = "active"
+        profile.dodo_subscription_id = "sub_13"
+        profile.dodo_product_id = "pdt_business_test"
+        profile.save()
+
+        for i in range(5):
+            self.create_keyword(
+                user_id="u13", platform="reddit", keyword=f"kw{i}"
+            )
+
+        class FakeCustomer:
+            customer_id = "cus_13"
+
+        class FakeSub:
+            subscription_id = "sub_13"
+            status = "cancelled"
+            product_id = "pdt_business_test"
+            customer = FakeCustomer()
+            metadata = {"clerk_user_id": "u13"}
+
+        with self.settings(DODO_BUSINESS_PRODUCT_ID="pdt_business_test"):
+            billing_service.apply_subscription_event(FakeSub())
+            profile.reload()
+            self.assertEqual(profile.plan, "free")
+            self.assertTrue(profile.needs_keyword_selection)
 
     def test_keyword_selection_rejects_over_cap(self):
         profile = billing_service.get_or_create_profile("u11")

@@ -268,7 +268,7 @@ const pricingPlans = [
     description: "Higher limits plus team workflows and integrations.",
     cta: "Get Business",
     featured: false,
-    href: null as string | null,
+    href: "/dashboard/settings?upgrade=business#billing",
     features: [
       "Reddit: 100 keyword alerts",
       "Hacker News: 100 keyword alerts",

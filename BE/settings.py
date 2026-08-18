@@ -271,6 +271,7 @@ DODO_PAYMENTS_API_KEY = os.getenv('DODO_PAYMENTS_API_KEY')
 DODO_PAYMENTS_WEBHOOK_KEY = os.getenv('DODO_PAYMENTS_WEBHOOK_KEY')
 DODO_PAYMENTS_ENVIRONMENT = os.getenv('DODO_PAYMENTS_ENVIRONMENT', 'test_mode')
 DODO_PRO_PRODUCT_ID = os.getenv('DODO_PRO_PRODUCT_ID', 'pdt_0Nl9M3Ip9w0OyXZGilemz')
+DODO_BUSINESS_PRODUCT_ID = os.getenv('DODO_BUSINESS_PRODUCT_ID', '')
 
 # Logging Configuration (copied from Java application.properties)
 LOGGING = {

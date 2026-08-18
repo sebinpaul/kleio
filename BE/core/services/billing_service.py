@@ -8,10 +8,17 @@ from typing import Any
 from core.models import Keyword, UserProfile
 from core.plans import (
     ACTIVE_SUBSCRIPTION_STATUSES,
+    PLAN_BUSINESS,
     PLAN_FREE,
     PLAN_PRO,
     PLATFORM_LABELS,
+    is_paid_plan,
+    known_product_ids,
     limits_for_plan,
+    normalize_checkout_plan,
+    plan_for_product_id,
+    plan_rank,
+    product_id_for_plan,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,14 +36,19 @@ def get_or_create_profile(user_id: str) -> UserProfile:
 
 def resolve_plan(profile: UserProfile) -> str:
     """
-    Pro while Dodo status is active — including when cancel_at_period_end is set.
+    Paid plans stay active while Dodo status is active — including cancel_at_period_end.
     Access ends only after status leaves the active set (cancelled/expired/etc.).
     """
     status = (profile.subscription_status or "").lower()
-    if profile.plan == PLAN_PRO and status in ACTIVE_SUBSCRIPTION_STATUSES:
-        return PLAN_PRO
+    if is_paid_plan(profile.plan) and status in ACTIVE_SUBSCRIPTION_STATUSES:
+        return profile.plan
     # Legacy / webhook race: subscription id present and active status
     if status in ACTIVE_SUBSCRIPTION_STATUSES and profile.dodo_subscription_id:
+        mapped = plan_for_product_id(getattr(profile, "dodo_product_id", None))
+        if mapped:
+            return mapped
+        if is_paid_plan(profile.plan):
+            return profile.plan
         return PLAN_PRO
     return PLAN_FREE
 
@@ -62,10 +74,10 @@ def billing_status_payload(user_id: str) -> dict[str, Any]:
     remaining = {
         p: max(0, limits.get(p, 0) - usage.get(p, 0)) for p in METERED_PLATFORMS
     }
-    cancel_at_period_end = bool(profile.cancel_at_period_end) and plan == PLAN_PRO
+    cancel_at_period_end = bool(profile.cancel_at_period_end) and is_paid_plan(plan)
 
-    # Auto-pause if somehow still actively over Free caps.
-    if plan != PLAN_PRO and _has_over_limit_active(usage, limits):
+    # Auto-pause if somehow still actively over current plan caps.
+    if _has_over_limit_active(usage, limits):
         enforce_downgrade_keyword_limits(user_id)
         profile.reload()
         usage = keyword_usage(user_id, active_only=True)
@@ -73,12 +85,14 @@ def billing_status_payload(user_id: str) -> dict[str, Any]:
         remaining = {
             p: max(0, limits.get(p, 0) - usage.get(p, 0)) for p in METERED_PLATFORMS
         }
+        plan = resolve_plan(profile)
 
     return {
         "plan": plan,
         "subscriptionStatus": profile.subscription_status,
         "dodoCustomerId": profile.dodo_customer_id,
         "dodoSubscriptionId": profile.dodo_subscription_id,
+        "dodoProductId": getattr(profile, "dodo_product_id", None),
         "cancelAtPeriodEnd": cancel_at_period_end,
         "nextBillingDate": profile.next_billing_date,
         "needsKeywordSelection": bool(profile.needs_keyword_selection),
@@ -86,7 +100,9 @@ def billing_status_payload(user_id: str) -> dict[str, Any]:
         "usage": usage,
         "totalUsage": total_usage,
         "remaining": remaining,
-        "canUpgrade": plan != PLAN_PRO,
+        "canUpgrade": plan != PLAN_BUSINESS,
+        "canUpgradePro": plan == PLAN_FREE,
+        "canUpgradeBusiness": plan in (PLAN_FREE, PLAN_PRO),
         "canReactivate": cancel_at_period_end and bool(profile.dodo_subscription_id),
         "canManageBilling": bool(profile.dodo_customer_id),
     }
@@ -226,6 +242,7 @@ def apply_subscription_to_profile(
     previous_plan = resolve_plan(profile)
     customer_id = _customer_id(subscription)
     subscription_id = _attr(subscription, "subscription_id", "subscriptionId")
+    product_id = _attr(subscription, "product_id", "productId")
     status = _normalize_status(_attr(subscription, "status"))
     cancel_flag = _attr(
         subscription,
@@ -240,15 +257,21 @@ def apply_subscription_to_profile(
         profile.dodo_customer_id = customer_id
     if subscription_id:
         profile.dodo_subscription_id = subscription_id
+    if product_id:
+        profile.dodo_product_id = product_id
     if status:
         profile.subscription_status = status
 
+    mapped_plan = plan_for_product_id(product_id)
+
     if status in ACTIVE_SUBSCRIPTION_STATUSES:
-        profile.plan = PLAN_PRO
+        profile.plan = mapped_plan or (
+            profile.plan if is_paid_plan(profile.plan) else PLAN_PRO
+        )
         profile.cancel_at_period_end = bool(cancel_flag)
         if next_billing:
             profile.next_billing_date = next_billing
-        # Upgrading clears the Free pick-flow requirement.
+        # Upgrading / staying paid clears the Free pick-flow requirement.
         profile.needs_keyword_selection = False
     else:
         # cancelled / on_hold / expired / failed / paused → free access
@@ -259,19 +282,20 @@ def apply_subscription_to_profile(
 
     profile.save()
     logger.info(
-        "Synced billing for user %s → plan=%s status=%s cancel_at_period_end=%s sub=%s",
+        "Synced billing for user %s → plan=%s status=%s cancel_at_period_end=%s sub=%s product=%s",
         profile.user_id,
         profile.plan,
         profile.subscription_status,
         profile.cancel_at_period_end,
         profile.dodo_subscription_id,
+        getattr(profile, "dodo_product_id", None),
     )
 
     new_plan = resolve_plan(profile)
-    if previous_plan == PLAN_PRO and new_plan == PLAN_FREE:
+    if plan_rank(previous_plan) > plan_rank(new_plan):
         enforce_downgrade_keyword_limits(profile.user_id)
     elif new_plan == PLAN_FREE:
-        # Catch Free users who drifted over-limit without a Pro→Free transition.
+        # Catch Free users who drifted over-limit without a paid→Free transition.
         maybe_flag_over_limit_selection(profile.user_id)
 
     return profile
@@ -279,10 +303,10 @@ def apply_subscription_to_profile(
 
 def enforce_downgrade_keyword_limits(user_id: str) -> None:
     """
-    After Pro → Free: pause keywords that don't fit Free caps and require a pick.
+    After a plan drop: pause keywords that don't fit the new caps and require a pick.
 
-    - Platforms with limit 0 (X/YouTube on Free): deactivate all.
-    - Platforms over the Free active cap: deactivate all on that platform so the
+    - Platforms with limit 0: deactivate all.
+    - Platforms over the active cap: deactivate all on that platform so the
       user must choose which ones to keep.
     """
     profile = get_or_create_profile(user_id)
@@ -325,12 +349,9 @@ def maybe_flag_over_limit_selection(user_id: str) -> None:
     """If active keywords already exceed plan limits, require selection."""
     profile = get_or_create_profile(user_id)
     plan = resolve_plan(profile)
-    if plan == PLAN_PRO:
-        return
     limits = limits_for_plan(plan)
     usage = keyword_usage(user_id, active_only=True)
     if _has_over_limit_active(usage, limits):
-        # Pause over-limit platforms the same way as a downgrade.
         enforce_downgrade_keyword_limits(user_id)
 
 
@@ -469,14 +490,15 @@ def check_can_activate_keyword(user_id: str, keyword: Keyword) -> tuple[bool, st
 
 def reactivate_plan(user_id: str) -> dict[str, Any]:
     """
-    Clear cancel_at_next_billing_date on the user's active Pro subscription.
+    Clear cancel_at_next_billing_date on the user's active paid subscription.
     Prefer this over creating a second checkout while still in the paid period.
     """
     from core.services import dodo_service
 
     profile = get_or_create_profile(user_id)
-    if resolve_plan(profile) != PLAN_PRO:
-        raise ValueError("No active Pro subscription to reactivate.")
+    current = resolve_plan(profile)
+    if not is_paid_plan(current):
+        raise ValueError("No active paid subscription to reactivate.")
     if not profile.cancel_at_period_end:
         return billing_status_payload(user_id)
     if not profile.dodo_subscription_id:
@@ -486,6 +508,68 @@ def reactivate_plan(user_id: str) -> dict[str, Any]:
     apply_subscription_to_profile(profile, updated)
     profile.reload()
     return billing_status_payload(user_id)
+
+
+def start_plan_checkout(
+    user_id: str,
+    *,
+    plan: str,
+    email: str,
+    name: str | None,
+    return_url: str,
+    cancel_url: str,
+) -> dict[str, Any]:
+    """
+    Start checkout for Free→paid, reactivate a scheduled cancel on the same plan,
+    or change_plan when upgrading Pro→Business on an existing subscription.
+    """
+    from core.services import dodo_service
+
+    target = normalize_checkout_plan(plan)
+    product_id = product_id_for_plan(target)
+    profile = get_or_create_profile(user_id)
+    current = resolve_plan(profile)
+
+    if current == target:
+        if profile.cancel_at_period_end and profile.dodo_subscription_id:
+            payload = reactivate_plan(user_id)
+            return {"reactivated": True, **payload}
+        raise ValueError(f"You are already on the {target.capitalize()} plan.")
+
+    # Paid → higher paid: change existing subscription instead of a second checkout.
+    if is_paid_plan(current) and plan_rank(target) > plan_rank(current):
+        if not profile.dodo_subscription_id:
+            raise ValueError("Missing subscription id; open Manage billing to continue.")
+        if profile.cancel_at_period_end:
+            # Undo cancel first so the upgrade applies to a renewing sub.
+            dodo_service.reactivate_subscription(profile.dodo_subscription_id)
+        updated = dodo_service.change_subscription_plan(
+            profile.dodo_subscription_id,
+            product_id=product_id,
+            proration_billing_mode="prorated_immediately",
+        )
+        apply_subscription_to_profile(profile, updated)
+        profile.reload()
+        return {"changedPlan": True, **billing_status_payload(user_id)}
+
+    if is_paid_plan(current) and plan_rank(target) < plan_rank(current):
+        raise ValueError(
+            "To move to a lower plan, use Manage billing in the customer portal."
+        )
+
+    result = dodo_service.create_checkout(
+        product_id=product_id,
+        customer_email=email,
+        customer_name=name,
+        clerk_user_id=user_id,
+        dodo_customer_id=profile.dodo_customer_id or None,
+        return_url=return_url,
+        cancel_url=cancel_url,
+    )
+    if result.get("customerId"):
+        profile.dodo_customer_id = result["customerId"]
+        profile.save()
+    return result
 
 
 def _resolve_user_id_from_subscription(subscription: Any) -> str | None:
@@ -590,13 +674,11 @@ def sync_plan_from_dodo(user_id: str, *, email: str | None = None) -> dict[str, 
 
     Called on return from checkout so plan activation does not depend solely on webhooks.
     """
-    from django.conf import settings as django_settings
-
     from core.services import dodo_service
 
     profile = get_or_create_profile(user_id)
     customer_id = profile.dodo_customer_id or None
-    product_id = django_settings.DODO_PRO_PRODUCT_ID or None
+    product_ids = known_product_ids()
 
     if not customer_id and email:
         customer_id = dodo_service.ensure_customer(
@@ -613,7 +695,7 @@ def sync_plan_from_dodo(user_id: str, *, email: str | None = None) -> dict[str, 
         logger.warning("Cannot sync billing for %s: no Dodo customer id", user_id)
         return billing_status_payload(user_id)
 
-    # Prefer an existing subscription id, then active, then any recent sub for the product.
+    # Prefer an existing subscription id, then active/pending across known products.
     candidates: list[Any] = []
     if profile.dodo_subscription_id:
         try:
@@ -627,7 +709,7 @@ def sync_plan_from_dodo(user_id: str, *, email: str | None = None) -> dict[str, 
                 exc_info=True,
             )
 
-    for status in ("active", "pending"):
+    def _list_for(*, status: str | None = None, product_id: str | None = None) -> None:
         try:
             found = dodo_service.list_subscriptions_for_customer(
                 customer_id,
@@ -637,23 +719,27 @@ def sync_plan_from_dodo(user_id: str, *, email: str | None = None) -> dict[str, 
             candidates.extend(found)
         except Exception:
             logger.exception(
-                "Failed listing %s subscriptions for customer %s", status, customer_id
+                "Failed listing subscriptions for customer %s status=%s product=%s",
+                customer_id,
+                status,
+                product_id,
             )
+
+    for status in ("active", "pending"):
+        if product_ids:
+            for pid in product_ids:
+                _list_for(status=status, product_id=pid)
+        else:
+            _list_for(status=status)
 
     if not candidates:
-        try:
-            candidates.extend(
-                dodo_service.list_subscriptions_for_customer(
-                    customer_id,
-                    product_id=product_id,
-                )
-            )
-        except Exception:
-            logger.exception(
-                "Failed listing subscriptions for customer %s", customer_id
-            )
+        if product_ids:
+            for pid in product_ids:
+                _list_for(product_id=pid)
+        else:
+            _list_for()
 
-    # Deduplicate by subscription_id, prefer active.
+    # Deduplicate by subscription_id, prefer active + higher plan.
     by_id: dict[str, Any] = {}
     for sub in candidates:
         sid = _attr(sub, "subscription_id", "subscriptionId")
@@ -676,10 +762,17 @@ def sync_plan_from_dodo(user_id: str, *, email: str | None = None) -> dict[str, 
         )
         return billing_status_payload(user_id)
 
-    def sort_key(sub: Any) -> tuple[int, str]:
+    def sort_key(sub: Any) -> tuple[int, int, str]:
         status = _normalize_status(_attr(sub, "status")) or ""
-        rank = 0 if status == "active" else 1 if status == "pending" else 2
-        return (rank, _attr(sub, "subscription_id", "subscriptionId") or "")
+        status_rank = 0 if status == "active" else 1 if status == "pending" else 2
+        product_id = _attr(sub, "product_id", "productId")
+        mapped = plan_for_product_id(product_id) or PLAN_FREE
+        # Higher plan first within same status (negate rank).
+        return (
+            status_rank,
+            -plan_rank(mapped),
+            _attr(sub, "subscription_id", "subscriptionId") or "",
+        )
 
     best = sorted(by_id.values(), key=sort_key)[0]
     apply_subscription_to_profile(profile, best)

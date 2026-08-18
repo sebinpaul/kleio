@@ -57,12 +57,21 @@ export function canAddAnyKeyword(billing: BillingStatus | null | undefined): boo
 }
 
 export function planDisplayName(plan: string | undefined): string {
+  if (plan === "business") return "Business";
   if (plan === "pro") return "Pro";
   return "Free";
 }
 
+export function planPriceLabel(plan: string | undefined): string {
+  if (plan === "business") return "$75/mo";
+  if (plan === "pro") return "$17/mo";
+  return "$0/mo";
+}
+
 export const BILLING_SETTINGS_HREF = "/dashboard/settings#billing";
 export const BILLING_UPGRADE_HREF = "/dashboard/settings?upgrade=pro#billing";
+export const BILLING_UPGRADE_BUSINESS_HREF =
+  "/dashboard/settings?upgrade=business#billing";
 export const KEYWORD_SELECTION_HREF = "/dashboard/settings#keyword-selection";
 
 export const METERED_PLATFORMS: Platform[] = [

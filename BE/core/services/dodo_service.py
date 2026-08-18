@@ -82,8 +82,9 @@ def ensure_customer(
     return None
 
 
-def create_pro_checkout(
+def create_checkout(
     *,
+    product_id: str,
     customer_email: str,
     customer_name: str | None,
     clerk_user_id: str,
@@ -92,9 +93,8 @@ def create_pro_checkout(
     cancel_url: str | None = None,
 ) -> dict[str, str]:
     client = get_dodo_client()
-    product_id = settings.DODO_PRO_PRODUCT_ID
     if not product_id:
-        raise RuntimeError("DODO_PRO_PRODUCT_ID is not configured")
+        raise RuntimeError("Dodo product_id is required for checkout")
 
     metadata = {"clerk_user_id": clerk_user_id}
     customer_id = ensure_customer(
@@ -130,6 +130,54 @@ def create_pro_checkout(
         "sessionId": session_id or "",
         "customerId": customer_id or "",
     }
+
+
+def create_pro_checkout(
+    *,
+    customer_email: str,
+    customer_name: str | None,
+    clerk_user_id: str,
+    dodo_customer_id: str | None,
+    return_url: str,
+    cancel_url: str | None = None,
+) -> dict[str, str]:
+    """Backward-compatible Pro checkout wrapper."""
+    product_id = settings.DODO_PRO_PRODUCT_ID
+    if not product_id:
+        raise RuntimeError("DODO_PRO_PRODUCT_ID is not configured")
+    return create_checkout(
+        product_id=product_id,
+        customer_email=customer_email,
+        customer_name=customer_name,
+        clerk_user_id=clerk_user_id,
+        dodo_customer_id=dodo_customer_id,
+        return_url=return_url,
+        cancel_url=cancel_url,
+    )
+
+
+def change_subscription_plan(
+    subscription_id: str,
+    *,
+    product_id: str,
+    proration_billing_mode: str = "prorated_immediately",
+    quantity: int = 1,
+) -> Any:
+    """
+    Upgrade/downgrade an existing subscription to another product.
+
+    change_plan returns None — retrieve the subscription afterwards.
+    """
+    client = get_dodo_client()
+    client.subscriptions.change_plan(
+        subscription_id,
+        product_id=product_id,
+        proration_billing_mode=proration_billing_mode,  # type: ignore[arg-type]
+        quantity=quantity,
+        effective_at="immediately",
+        on_payment_failure="prevent_change",
+    )
+    return client.subscriptions.retrieve(subscription_id)
 
 
 def create_customer_portal_link(

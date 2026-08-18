@@ -858,7 +858,7 @@ def billing_keyword_selection(request):
 
 @api_view(['POST'])
 def billing_checkout(request):
-    """Create a Dodo checkout session for Pro (or reactivate a scheduled cancel)."""
+    """Create a Dodo checkout (or change-plan) for Pro / Business."""
     user_id = _user_id(request)
     try:
         user_info = clerk_user_service.get_user_info(user_id) or {}
@@ -869,18 +869,10 @@ def billing_checkout(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        plan = request.data.get('plan') or request.data.get('targetPlan') or 'pro'
+
         # Sync before deciding — avoids duplicate checkouts after portal cancel.
         billing_service.sync_plan_from_dodo(user_id, email=email)
-        profile = billing_service.get_or_create_profile(user_id)
-
-        if billing_service.resolve_plan(profile) == 'pro':
-            if profile.cancel_at_period_end and profile.dodo_subscription_id:
-                payload = billing_service.reactivate_plan(user_id)
-                return Response({'reactivated': True, **payload})
-            return Response(
-                {'error': 'You are already on the Pro plan.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
         first = (user_info.get('first_name') or '').strip()
         last = (user_info.get('last_name') or '').strip()
@@ -890,18 +882,14 @@ def billing_checkout(request):
         return_url = f"{frontend}/dashboard/settings?billing=success"
         cancel_url = f"{frontend}/dashboard/settings?billing=cancelled"
 
-        result = dodo_service.create_pro_checkout(
-            customer_email=email,
-            customer_name=name,
-            clerk_user_id=user_id,
-            dodo_customer_id=profile.dodo_customer_id or None,
+        result = billing_service.start_plan_checkout(
+            user_id,
+            plan=plan,
+            email=email,
+            name=name,
             return_url=return_url,
             cancel_url=cancel_url,
         )
-        # Always persist customer id before redirect so return-path sync can match.
-        if result.get("customerId"):
-            profile.dodo_customer_id = result["customerId"]
-            profile.save()
         return Response(result)
     except ValueError as exc:
         return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -924,7 +912,7 @@ def billing_portal(request):
         profile = billing_service.get_or_create_profile(user_id)
         if not profile.dodo_customer_id:
             return Response(
-                {'error': 'No billing account found. Subscribe to Pro first.'},
+                {'error': 'No billing account found. Subscribe first.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

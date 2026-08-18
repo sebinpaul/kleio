@@ -3,7 +3,7 @@
 import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useApi, ApiUnauthorizedError, type BillingStatus } from "@/lib/api";
-import { planDisplayName } from "@/lib/billing";
+import { planDisplayName, planPriceLabel } from "@/lib/billing";
 import KeywordSelectionPanel from "@/components/KeywordSelectionPanel";
 
 const PLATFORM_ROWS: { key: string; label: string }[] = [
@@ -18,6 +18,18 @@ const PRO_HIGHLIGHTS = [
   "X and YouTube monitoring",
   "Higher alert capacity",
 ];
+
+const BUSINESS_HIGHLIGHTS = [
+  "100 Reddit + 100 HN keywords",
+  "10 X + 10 YouTube keywords",
+  "Higher limits for power users",
+];
+
+type CheckoutPlan = "pro" | "business";
+
+function isPaidPlan(plan: string | undefined): boolean {
+  return plan === "pro" || plan === "business";
+}
 
 function usagePercent(used: number, limit: number): number {
   if (limit <= 0) return used > 0 ? 100 : 0;
@@ -112,15 +124,15 @@ function SettingsPageContent() {
             setBillingMessage(
               "You're on Free. Pick which keywords to keep active below."
             );
-          } else if (status.plan === "pro" && status.cancelAtPeriodEnd) {
+          } else if (isPaidPlan(status.plan) && status.cancelAtPeriodEnd) {
             const until = formatBillingDate(status.nextBillingDate);
             setBillingMessage(
               until
-                ? `Pro stays active until ${until}. You can keep Pro anytime before then.`
-                : "Pro is scheduled to cancel at period end. You can keep Pro anytime before then."
+                ? `${planDisplayName(status.plan)} stays active until ${until}. You can keep it anytime before then.`
+                : `${planDisplayName(status.plan)} is scheduled to cancel at period end. You can keep it anytime before then.`
             );
-          } else if (status.plan === "pro") {
-            setBillingMessage("You're on Pro.");
+          } else if (isPaidPlan(status.plan)) {
+            setBillingMessage(`You're on ${planDisplayName(status.plan)}.`);
           } else {
             setBillingMessage("You're on the Free plan.");
           }
@@ -151,8 +163,10 @@ function SettingsPageContent() {
           if (cancelled) return;
           setBilling(status);
           setLoading(false);
-          if (status.plan === "pro") {
-            setBillingMessage("You're on Pro. Limits and platforms are unlocked.");
+          if (isPaidPlan(status.plan)) {
+            setBillingMessage(
+              `You're on ${planDisplayName(status.plan)}. Limits and platforms are unlocked.`
+            );
             return;
           }
           setBillingMessage(
@@ -193,22 +207,34 @@ function SettingsPageContent() {
   }, [loading, billing?.needsKeywordSelection]);
 
   useEffect(() => {
-    const shouldUpgrade =
-      searchParams.get("upgrade") === "pro" &&
-      billing?.canUpgrade &&
-      !upgradeStarted.current &&
-      !loading;
+    const upgradeParam = searchParams.get("upgrade");
+    const target: CheckoutPlan | null =
+      upgradeParam === "pro" || upgradeParam === "business" ? upgradeParam : null;
+    const canStart =
+      target === "pro"
+        ? Boolean(billing?.canUpgradePro)
+        : target === "business"
+          ? Boolean(billing?.canUpgradeBusiness)
+          : false;
 
-    if (!shouldUpgrade) return;
+    if (!target || !canStart || upgradeStarted.current || loading) return;
 
     upgradeStarted.current = true;
     (async () => {
       try {
         setBillingBusy(true);
-        const result = await api.createBillingCheckout();
+        const result = await api.createBillingCheckout(target);
         if (result.reactivated) {
           setBilling(result as BillingStatus);
-          setBillingMessage("Pro renewed — your cancel was undone.");
+          setBillingMessage(
+            `${planDisplayName(target)} renewed — your cancel was undone.`
+          );
+          setBillingBusy(false);
+          return;
+        }
+        if (result.changedPlan) {
+          setBilling(result as BillingStatus);
+          setBillingMessage(`You're now on ${planDisplayName(result.plan || target)}.`);
           setBillingBusy(false);
           return;
         }
@@ -240,14 +266,22 @@ function SettingsPageContent() {
     }
   };
 
-  const handleUpgrade = async () => {
+  const handleCheckout = async (target: CheckoutPlan) => {
     setBillingBusy(true);
     setError(null);
     try {
-      const result = await api.createBillingCheckout();
+      const result = await api.createBillingCheckout(target);
       if (result.reactivated) {
         setBilling(result as BillingStatus);
-        setBillingMessage("Pro renewed — your cancel was undone.");
+        setBillingMessage(
+          `${planDisplayName(target)} renewed — your cancel was undone.`
+        );
+        setBillingBusy(false);
+        return;
+      }
+      if (result.changedPlan) {
+        setBilling(result as BillingStatus);
+        setBillingMessage(`You're now on ${planDisplayName(result.plan || target)}.`);
         setBillingBusy(false);
         return;
       }
@@ -262,16 +296,18 @@ function SettingsPageContent() {
     }
   };
 
-  const handleKeepPro = async () => {
+  const handleKeepPlan = async () => {
     setBillingBusy(true);
     setError(null);
     try {
       const status = await api.reactivateBilling();
       setBilling(status);
-      setBillingMessage("Pro will renew as usual. Cancel was undone.");
+      setBillingMessage(
+        `${planDisplayName(status.plan)} will renew as usual. Cancel was undone.`
+      );
     } catch (err) {
       if (err instanceof ApiUnauthorizedError) return;
-      setError(err instanceof Error ? err.message : "Failed to keep Pro");
+      setError(err instanceof Error ? err.message : "Failed to keep plan");
     } finally {
       setBillingBusy(false);
     }
@@ -298,10 +334,13 @@ function SettingsPageContent() {
     setError(null);
   };
 
+  const isPaid = isPaidPlan(billing?.plan);
+  const isBusiness = billing?.plan === "business";
   const isPro = billing?.plan === "pro";
   const cancelAtPeriodEnd = Boolean(billing?.cancelAtPeriodEnd);
   const accessUntil = formatBillingDate(billing?.nextBillingDate);
   const planLabel = planDisplayName(billing?.plan);
+  const priceLabel = planPriceLabel(billing?.plan);
   const needsKeywordSelection = Boolean(billing?.needsKeywordSelection);
 
   return (
@@ -348,9 +387,11 @@ function SettingsPageContent() {
             >
               <div
                 className={`relative px-6 pt-6 pb-5 ${
-                  isPro
-                    ? "bg-gradient-to-br from-indigo-600 via-indigo-600 to-cyan-600 text-white"
-                    : "bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white"
+                  isBusiness
+                    ? "bg-gradient-to-br from-violet-700 via-indigo-700 to-cyan-600 text-white"
+                    : isPro
+                      ? "bg-gradient-to-br from-indigo-600 via-indigo-600 to-cyan-600 text-white"
+                      : "bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white"
                 }`}
               >
                 <div className="absolute inset-0 opacity-30 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white/40 via-transparent to-transparent pointer-events-none" />
@@ -361,17 +402,17 @@ function SettingsPageContent() {
                     </p>
                     <div className="mt-1 flex items-baseline gap-2">
                       <h2 className="text-3xl font-bold tracking-tight">{planLabel}</h2>
-                      <span className="text-sm text-white/80">
-                        {isPro ? "$17/mo" : "$0/mo"}
-                      </span>
+                      <span className="text-sm text-white/80">{priceLabel}</span>
                     </div>
                     <p className="mt-2 text-sm text-white/75 max-w-md">
-                      {isPro
+                      {isPaid
                         ? cancelAtPeriodEnd
                           ? accessUntil
-                            ? `Full platform coverage until ${accessUntil}. Cancel is scheduled — keep Pro to renew.`
+                            ? `Full platform coverage until ${accessUntil}. Cancel is scheduled — keep ${planLabel} to renew.`
                             : "Full platform coverage for the rest of this billing period. Cancel is scheduled."
-                          : "Full platform coverage across Reddit, HN, X, and YouTube."
+                          : isBusiness
+                            ? "Highest keyword caps across Reddit, HN, X, and YouTube."
+                            : "Full platform coverage across Reddit, HN, X, and YouTube."
                         : needsKeywordSelection
                           ? "Pick which keywords stay active below — extras pause until you upgrade."
                           : "Reddit and Hacker News starter limits. Upgrade for X, YouTube, and more keywords."}
@@ -385,14 +426,14 @@ function SettingsPageContent() {
                   </div>
                   <span
                     className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${
-                      isPro
+                      isPaid
                         ? cancelAtPeriodEnd
                           ? "bg-amber-400/20 text-amber-50 ring-1 ring-amber-200/40"
                           : "bg-white/20 text-white ring-1 ring-white/30"
                         : "bg-white/10 text-white/90 ring-1 ring-white/20"
                     }`}
                   >
-                    {isPro ? (cancelAtPeriodEnd ? "Canceling" : "Active") : "Starter"}
+                    {isPaid ? (cancelAtPeriodEnd ? "Canceling" : "Active") : "Starter"}
                   </span>
                 </div>
               </div>
@@ -453,21 +494,21 @@ function SettingsPageContent() {
                   </div>
                 )}
 
-                {isPro && cancelAtPeriodEnd && (
+                {isPaid && cancelAtPeriodEnd && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
                     <p className="text-sm font-semibold text-amber-900">
                       Canceling at period end
                     </p>
                     <p className="mt-1 text-sm text-amber-800/90">
                       {accessUntil
-                        ? `You keep Pro access until ${accessUntil}. After that you’ll move to Free limits and may need to pick which keywords to keep.`
-                        : "You keep Pro until the end of this billing period."}{" "}
-                      Keep Pro to undo the cancel without paying again.
+                        ? `You keep ${planLabel} access until ${accessUntil}. After that you’ll move to Free limits and may need to pick which keywords to keep.`
+                        : `You keep ${planLabel} until the end of this billing period.`}{" "}
+                      Keep {planLabel} to undo the cancel without paying again.
                     </p>
                   </div>
                 )}
 
-                {!isPro && !needsKeywordSelection && (
+                {!isPaid && !needsKeywordSelection && (
                   <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
                     <p className="text-sm font-semibold text-indigo-900">
                       Unlock with Pro — $17/mo
@@ -486,23 +527,55 @@ function SettingsPageContent() {
                   </div>
                 )}
 
+                {isPro && !cancelAtPeriodEnd && (
+                  <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3">
+                    <p className="text-sm font-semibold text-violet-900">
+                      Need more capacity? Business — $75/mo
+                    </p>
+                    <ul className="mt-2 space-y-1">
+                      {BUSINESS_HIGHLIGHTS.map((item) => (
+                        <li
+                          key={item}
+                          className="flex items-center gap-2 text-sm text-violet-800/90"
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-3 pt-1">
                   {billing?.canReactivate && (
                     <button
-                      onClick={handleKeepPro}
+                      onClick={handleKeepPlan}
                       disabled={billingBusy}
                       className="gradient-button px-5 py-2.5 rounded-lg text-sm font-medium disabled:opacity-50"
                     >
-                      {billingBusy ? "Saving…" : "Keep Pro"}
+                      {billingBusy ? "Saving…" : `Keep ${planLabel}`}
                     </button>
                   )}
-                  {billing?.canUpgrade && (
+                  {billing?.canUpgradePro && (
                     <button
-                      onClick={handleUpgrade}
+                      onClick={() => handleCheckout("pro")}
                       disabled={billingBusy}
                       className="gradient-button px-5 py-2.5 rounded-lg text-sm font-medium disabled:opacity-50"
                     >
                       {billingBusy ? "Redirecting…" : "Upgrade to Pro — $17/mo"}
+                    </button>
+                  )}
+                  {billing?.canUpgradeBusiness && (
+                    <button
+                      onClick={() => handleCheckout("business")}
+                      disabled={billingBusy}
+                      className="px-5 py-2.5 rounded-lg text-sm font-medium border border-violet-200 bg-violet-50 text-violet-900 hover:bg-violet-100 disabled:opacity-50"
+                    >
+                      {billingBusy
+                        ? "Working…"
+                        : isPro
+                          ? "Upgrade to Business — $75/mo"
+                          : "Get Business — $75/mo"}
                     </button>
                   )}
                   {billing?.canManageBilling && (
