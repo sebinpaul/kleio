@@ -17,6 +17,7 @@ from core.models import Keyword, Mention, MonitorCursor
 from core.enums import Platform, ContentType, MentionContentType
 from core.services.matching_engine import GenericMatchingEngine, MatchContext
 from core.services.email_service import email_notification_service
+from core.services.chrome_driver import create_driver as create_chrome_driver
 
 logger = logging.getLogger(__name__)
 
@@ -594,44 +595,7 @@ class YouTubeService:
 
     @staticmethod
     def _create_driver(headless: bool = True):
-        import os
-        import tempfile
-        import undetected_chromedriver as uc
-
-        options = uc.ChromeOptions()
-        options.headless = headless
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--disable-infobars")
-        options.add_argument("--disable-extensions")
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument(
-            "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-        )
-        if headless:
-            options.add_argument("--headless=new")
-
-        data_dir = os.getenv("CHROME_USER_DATA_DIR")
-        if data_dir:
-            data_dir = os.path.join(data_dir, "yt")
-        else:
-            data_dir = tempfile.mkdtemp(prefix="kleio-chrome-yt-")
-        os.makedirs(data_dir, exist_ok=True)
-        options.add_argument(f"--user-data-dir={data_dir}")
-
-        browser_path = os.getenv("CHROME_BIN") or os.getenv("CHROME_PATH")
-        chrome_kwargs = {"options": options}
-        if browser_path:
-            chrome_kwargs["browser_executable_path"] = browser_path
-
-        try:
-            driver = uc.Chrome(**chrome_kwargs)
-        except Exception:
-            driver = uc.Chrome(**chrome_kwargs, version_main=None)
-        driver.set_page_load_timeout(30)
-        return driver
+        return create_chrome_driver("youtube", headless=headless)
 # Global instance (optional)
 youtube_service = YouTubeService()
 

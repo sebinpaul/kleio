@@ -39,14 +39,13 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --system --gid 1001 app \
   && useradd --system --uid 1001 --gid app --create-home --home-dir /home/app app \
-  && mkdir -p /home/app/.local/share /home/app/.cache /tmp/chrome-user-data \
-  && chown -R app:app /home/app /tmp/chrome-user-data
+  && mkdir -p /home/app/.local/share /home/app/.cache \
+  && chown -R app:app /home/app
 
 ENV HOME=/home/app \
     XDG_CACHE_HOME=/home/app/.cache \
     XDG_CONFIG_HOME=/home/app/.config \
-    XDG_DATA_HOME=/home/app/.local/share \
-    CHROME_USER_DATA_DIR=/tmp/chrome-user-data
+    XDG_DATA_HOME=/home/app/.local/share
 
 COPY --from=builder /opt/venv /opt/venv
 COPY --chown=app:app . .
@@ -95,12 +94,20 @@ ENV CHROME_BIN=/usr/bin/google-chrome \
     HOME=/home/app \
     XDG_CACHE_HOME=/home/app/.cache \
     XDG_CONFIG_HOME=/home/app/.config \
-    XDG_DATA_HOME=/home/app/.local/share \
-    CHROME_USER_DATA_DIR=/tmp/chrome-user-data
+    XDG_DATA_HOME=/home/app/.local/share
 
-# Ensure Chrome/undetected-chromedriver can write under a real home + tmp profile.
-RUN mkdir -p /home/app/.local/share /home/app/.cache /tmp/chrome-user-data \
-  && chown -R app:app /home/app /tmp/chrome-user-data
+# undetected-chromedriver only knows the pre-115 download endpoint, so left to
+# itself it installs ChromeDriver 114 against the Chrome above. Bake in the
+# matching driver instead; the app then never downloads one at runtime.
+RUN python /app/scripts/install_chromedriver.py \
+  && chmod -R a+rX /opt/chromedriver
+
+ENV CHROMEDRIVER_PATH=/opt/chromedriver/chromedriver \
+    CHROMEDRIVER_CACHE_DIR=/home/app/.local/share/kleio-drivers
+
+# Chrome and the per-service driver copies need a writable home.
+RUN mkdir -p /home/app/.local/share/kleio-drivers /home/app/.cache \
+  && chown -R app:app /home/app
 
 USER app
 

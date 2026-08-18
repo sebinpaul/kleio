@@ -7,12 +7,11 @@ import sys
 import time
 import threading
 # snscrape intentionally not used
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 from datetime import datetime
 from django.utils import timezone
 import logging
 import re
-import subprocess
 from urllib.parse import quote_plus
 import random
 
@@ -23,6 +22,7 @@ from core.models import Keyword, Mention
 from core.enums import Platform, ContentType
 from core.services.matching_engine import GenericMatchingEngine, MatchContext
 from core.services.email_service import email_notification_service
+from core.services.chrome_driver import create_driver as create_chrome_driver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -57,83 +57,10 @@ def _unique_preserve_order(items: List[str]) -> List[str]:
     return result
 
 
-def _get_chrome_version() -> Optional[int]:
-    candidates = [
-        os.getenv("CHROME_BIN"),
-        os.getenv("CHROME_PATH"),
-        "/usr/bin/google-chrome",
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    ]
-    for binary in candidates:
-        if not binary:
-            continue
-        try:
-            result = subprocess.run(
-                [binary, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if result.returncode == 0:
-                version = re.search(r"(\d+)", result.stdout or result.stderr or "")
-                if version:
-                    return int(version.group(1))
-        except Exception:
-            continue
-    return None
-
-
-def _chrome_user_data_dir(explicit: Optional[str] = None, *, suffix: str = "tw") -> str:
-    """Writable Chrome profile dir — never use the read-only app tree in Docker."""
-    import tempfile
-
-    preferred = explicit or os.getenv("CHROME_USER_DATA_DIR")
-    if preferred:
-        path = os.path.join(preferred, suffix) if not explicit else preferred
-        os.makedirs(path, exist_ok=True)
-        return path
-    return tempfile.mkdtemp(prefix=f"kleio-chrome-{suffix}-")
-
-
 def _create_driver(headless: bool = True, user_data_dir: Optional[str] = None):
-    import undetected_chromedriver as uc
-
-    options = uc.ChromeOptions()
-    options.headless = headless
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--disable-infobars")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument(
-        "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    return create_chrome_driver(
+        "twitter", headless=headless, user_data_dir=user_data_dir
     )
-    if headless:
-        options.add_argument("--headless=new")
-
-    data_dir = _chrome_user_data_dir(user_data_dir, suffix="tw")
-    options.add_argument(f"--user-data-dir={data_dir}")
-
-    browser_path = os.getenv("CHROME_BIN") or os.getenv("CHROME_PATH")
-    chrome_kwargs: Dict[str, Any] = {"options": options}
-    if browser_path:
-        chrome_kwargs["browser_executable_path"] = browser_path
-
-    chrome_version = _get_chrome_version()
-    try:
-        if chrome_version:
-            driver = uc.Chrome(**chrome_kwargs, version_main=chrome_version)
-        else:
-            driver = uc.Chrome(**chrome_kwargs)
-    except Exception:
-        driver = uc.Chrome(**chrome_kwargs, version_main=None)
-
-    driver.set_page_load_timeout(30)
-    return driver
 
 def _build_search_url(
     instance: str,

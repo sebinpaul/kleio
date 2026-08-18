@@ -17,10 +17,11 @@ praw==8.0.2
 requests==2.34.2
 aiohttp==3.12.14
 
-# Undetected Chrome Driver for web scraping
-# Not installed in your current local venv — pinned to previous minimums (no silent upgrades).
-undetected-chromedriver==3.5.0
-selenium==4.15.0
+# Undetected Chrome Driver for web scraping.
+# 3.5.0 ignores driver_executable_path whenever it finds any patched driver in
+# its data dir, and can only download pre-115 drivers. Matches the local venv.
+undetected-chromedriver==3.5.5
+selenium==4.34.2
 
 # Environment variables
 python-dotenv==1.1.1
