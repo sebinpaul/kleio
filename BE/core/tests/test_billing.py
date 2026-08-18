@@ -144,3 +144,55 @@ class BillingLimitsTests(MongoTestCase):
         self.assertIsNotNone(profile)
         self.assertEqual(profile.plan, "pro")
         self.assertEqual(billing_service.resolve_plan(profile), "pro")
+
+    def test_active_with_cancel_at_period_end_stays_pro(self):
+        class FakeCustomer:
+            customer_id = "cus_8"
+
+        class FakeSub:
+            subscription_id = "sub_8"
+            status = "active"
+            cancel_at_next_billing_date = True
+            next_billing_date = "2026-09-18T00:00:00Z"
+            customer = FakeCustomer()
+            metadata = {"clerk_user_id": "u8"}
+
+        billing_service.apply_subscription_event(FakeSub())
+        profile = UserProfile.objects(user_id="u8").first()
+        self.assertIsNotNone(profile)
+        self.assertTrue(profile.cancel_at_period_end)
+        self.assertEqual(profile.next_billing_date, "2026-09-18T00:00:00Z")
+        self.assertEqual(billing_service.resolve_plan(profile), "pro")
+        payload = billing_service.billing_status_payload("u8")
+        self.assertTrue(payload["cancelAtPeriodEnd"])
+        self.assertTrue(payload["canReactivate"])
+        self.assertFalse(payload["canUpgrade"])
+
+    @patch("core.services.dodo_service.reactivate_subscription")
+    def test_reactivate_clears_cancel_flag(self, mock_reactivate):
+        profile = billing_service.get_or_create_profile("u9")
+        profile.plan = "pro"
+        profile.subscription_status = "active"
+        profile.dodo_subscription_id = "sub_9"
+        profile.dodo_customer_id = "cus_9"
+        profile.cancel_at_period_end = True
+        profile.next_billing_date = "2026-09-18T00:00:00Z"
+        profile.save()
+
+        class FakeCustomer:
+            customer_id = "cus_9"
+
+        class FakeSub:
+            subscription_id = "sub_9"
+            status = "active"
+            cancel_at_next_billing_date = False
+            next_billing_date = "2026-09-18T00:00:00Z"
+            customer = FakeCustomer()
+            metadata = {}
+
+        mock_reactivate.return_value = FakeSub()
+        payload = billing_service.reactivate_plan("u9")
+        self.assertEqual(payload["plan"], "pro")
+        self.assertFalse(payload["cancelAtPeriodEnd"])
+        self.assertFalse(payload["canReactivate"])
+        mock_reactivate.assert_called_once_with("sub_9")

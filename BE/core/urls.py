@@ -13,6 +13,7 @@ urlpatterns = [
     path('user/notification-settings', views.user_notification_settings, name='user_notification_settings'),
     path('billing/status', views.billing_status, name='billing_status'),
     path('billing/sync', views.billing_sync, name='billing_sync'),
+    path('billing/reactivate', views.billing_reactivate, name='billing_reactivate'),
     path('billing/checkout', views.billing_checkout, name='billing_checkout'),
     path('billing/portal', views.billing_portal, name='billing_portal'),
     path('webhooks/dodo', views.dodo_webhook, name='dodo_webhook'),

@@ -149,10 +149,13 @@ export interface BillingStatus {
   subscriptionStatus: string | null;
   dodoCustomerId: string | null;
   dodoSubscriptionId: string | null;
+  cancelAtPeriodEnd?: boolean;
+  nextBillingDate?: string | null;
   limits: Record<string, number>;
   usage: Record<string, number>;
   remaining?: Record<string, number>;
   canUpgrade: boolean;
+  canReactivate?: boolean;
   canManageBilling: boolean;
 }
 
@@ -407,9 +410,17 @@ class ApiService {
     return this.parseJson(response, "Failed to sync billing status");
   }
 
+  async reactivateBilling(auth: ApiAuthHandlers): Promise<BillingStatus> {
+    const response = await this.request(auth, `${API_BASE_URL}/api/billing/reactivate`, {
+      method: "POST",
+      headers: await this.getHeaders(auth),
+    });
+    return this.parseJson(response, "Failed to keep Pro");
+  }
+
   async createBillingCheckout(
     auth: ApiAuthHandlers
-  ): Promise<{ checkoutUrl: string; sessionId: string }> {
+  ): Promise<{ checkoutUrl?: string; sessionId?: string; reactivated?: boolean } & Partial<BillingStatus>> {
     const response = await this.request(auth, `${API_BASE_URL}/api/billing/checkout`, {
       method: "POST",
       headers: await this.getHeaders(auth),
@@ -473,6 +484,7 @@ export function useApi() {
         apiService.updateNotificationSettings(auth, data),
       getBillingStatus: () => apiService.getBillingStatus(auth),
       syncBillingStatus: () => apiService.syncBillingStatus(auth),
+      reactivateBilling: () => apiService.reactivateBilling(auth),
       createBillingCheckout: () => apiService.createBillingCheckout(auth),
       createBillingPortal: () => apiService.createBillingPortal(auth),
     }),

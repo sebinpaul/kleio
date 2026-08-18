@@ -182,6 +182,13 @@ class UserProfile(Document):
     dodo_customer_id = StringField(help_text="Dodo Payments customer id")
     dodo_subscription_id = StringField(help_text="Dodo Payments subscription id")
     subscription_status = StringField(help_text="Latest Dodo subscription status")
+    cancel_at_period_end = BooleanField(
+        default=False,
+        help_text="True when Pro is scheduled to cancel at next billing date",
+    )
+    next_billing_date = StringField(
+        help_text="ISO next billing / access-end date from Dodo"
+    )
     created_at = DateTimeField(default=timezone.now)
     updated_at = DateTimeField(default=timezone.now)
     

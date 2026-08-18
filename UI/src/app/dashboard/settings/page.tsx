@@ -31,6 +31,17 @@ function barColor(used: number, limit: number): string {
   return "bg-emerald-500";
 }
 
+function formatBillingDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function SettingsPageContent() {
   const api = useApi();
   const searchParams = useSearchParams();
@@ -44,6 +55,7 @@ function SettingsPageContent() {
   const [billingMessage, setBillingMessage] = useState<string | null>(null);
   const upgradeStarted = useRef(false);
   const successSyncStarted = useRef(false);
+  const portalSyncStarted = useRef(false);
   const billingSectionRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -54,9 +66,8 @@ function SettingsPageContent() {
         api.getBillingStatus(),
       ]);
       setEmailNotifications(settings.emailNotifications);
-      // Recover stuck Free accounts that already have a Dodo customer (webhook miss).
+      // Sync from Dodo when we have a customer (covers cancel/reactivate + stuck Free).
       if (
-        billingStatus.plan !== "pro" &&
         billingStatus.dodoCustomerId &&
         searchParams.get("billing") !== "success"
       ) {
@@ -86,6 +97,34 @@ function SettingsPageContent() {
     const billingParam = searchParams.get("billing");
     if (billingParam === "cancelled") {
       setBillingMessage("Checkout cancelled. You can upgrade anytime.");
+      return;
+    }
+    if (billingParam === "portal" && !portalSyncStarted.current) {
+      portalSyncStarted.current = true;
+      setBillingMessage("Updated billing from the customer portal.");
+      (async () => {
+        try {
+          const status = await api.syncBillingStatus();
+          setBilling(status);
+          if (status.plan === "pro" && status.cancelAtPeriodEnd) {
+            const until = formatBillingDate(status.nextBillingDate);
+            setBillingMessage(
+              until
+                ? `Pro stays active until ${until}. You can keep Pro anytime before then.`
+                : "Pro is scheduled to cancel at period end. You can keep Pro anytime before then."
+            );
+          } else if (status.plan === "pro") {
+            setBillingMessage("You're on Pro.");
+          } else {
+            setBillingMessage("You're on the Free plan.");
+          }
+        } catch (err) {
+          if (err instanceof ApiUnauthorizedError) return;
+          setError(
+            err instanceof Error ? err.message : "Failed to refresh billing after portal."
+          );
+        }
+      })();
       return;
     }
     if (billingParam !== "success" || successSyncStarted.current) return;
@@ -156,8 +195,17 @@ function SettingsPageContent() {
     (async () => {
       try {
         setBillingBusy(true);
-        const { checkoutUrl } = await api.createBillingCheckout();
-        window.location.href = checkoutUrl;
+        const result = await api.createBillingCheckout();
+        if (result.reactivated) {
+          setBilling(result as BillingStatus);
+          setBillingMessage("Pro renewed — your cancel was undone.");
+          setBillingBusy(false);
+          return;
+        }
+        if (!result.checkoutUrl) {
+          throw new Error("Checkout did not return a URL");
+        }
+        window.location.href = result.checkoutUrl;
       } catch (err) {
         if (err instanceof ApiUnauthorizedError) return;
         setError(err instanceof Error ? err.message : "Failed to start checkout");
@@ -186,11 +234,35 @@ function SettingsPageContent() {
     setBillingBusy(true);
     setError(null);
     try {
-      const { checkoutUrl } = await api.createBillingCheckout();
-      window.location.href = checkoutUrl;
+      const result = await api.createBillingCheckout();
+      if (result.reactivated) {
+        setBilling(result as BillingStatus);
+        setBillingMessage("Pro renewed — your cancel was undone.");
+        setBillingBusy(false);
+        return;
+      }
+      if (!result.checkoutUrl) {
+        throw new Error("Checkout did not return a URL");
+      }
+      window.location.href = result.checkoutUrl;
     } catch (err) {
       if (err instanceof ApiUnauthorizedError) return;
       setError(err instanceof Error ? err.message : "Failed to start checkout");
+      setBillingBusy(false);
+    }
+  };
+
+  const handleKeepPro = async () => {
+    setBillingBusy(true);
+    setError(null);
+    try {
+      const status = await api.reactivateBilling();
+      setBilling(status);
+      setBillingMessage("Pro will renew as usual. Cancel was undone.");
+    } catch (err) {
+      if (err instanceof ApiUnauthorizedError) return;
+      setError(err instanceof Error ? err.message : "Failed to keep Pro");
+    } finally {
       setBillingBusy(false);
     }
   };
@@ -209,6 +281,8 @@ function SettingsPageContent() {
   };
 
   const isPro = billing?.plan === "pro";
+  const cancelAtPeriodEnd = Boolean(billing?.cancelAtPeriodEnd);
+  const accessUntil = formatBillingDate(billing?.nextBillingDate);
   const planLabel = planDisplayName(billing?.plan);
 
   return (
@@ -265,23 +339,30 @@ function SettingsPageContent() {
                     </div>
                     <p className="mt-2 text-sm text-white/75 max-w-md">
                       {isPro
-                        ? "Full platform coverage across Reddit, HN, X, and YouTube."
+                        ? cancelAtPeriodEnd
+                          ? accessUntil
+                            ? `Full platform coverage until ${accessUntil}. Cancel is scheduled — keep Pro to renew.`
+                            : "Full platform coverage for the rest of this billing period. Cancel is scheduled."
+                          : "Full platform coverage across Reddit, HN, X, and YouTube."
                         : "Reddit and Hacker News starter limits. Upgrade for X, YouTube, and more keywords."}
                     </p>
                     {billing?.subscriptionStatus && (
                       <p className="mt-2 text-xs text-white/60 capitalize">
                         Subscription · {billing.subscriptionStatus}
+                        {cancelAtPeriodEnd ? " · canceling" : ""}
                       </p>
                     )}
                   </div>
                   <span
                     className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${
                       isPro
-                        ? "bg-white/20 text-white ring-1 ring-white/30"
+                        ? cancelAtPeriodEnd
+                          ? "bg-amber-400/20 text-amber-50 ring-1 ring-amber-200/40"
+                          : "bg-white/20 text-white ring-1 ring-white/30"
                         : "bg-white/10 text-white/90 ring-1 ring-white/20"
                     }`}
                   >
-                    {isPro ? "Active" : "Starter"}
+                    {isPro ? (cancelAtPeriodEnd ? "Canceling" : "Active") : "Starter"}
                   </span>
                 </div>
               </div>
@@ -333,6 +414,20 @@ function SettingsPageContent() {
                   </div>
                 )}
 
+                {isPro && cancelAtPeriodEnd && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                    <p className="text-sm font-semibold text-amber-900">
+                      Canceling at period end
+                    </p>
+                    <p className="mt-1 text-sm text-amber-800/90">
+                      {accessUntil
+                        ? `You keep Pro access until ${accessUntil}. After that you’ll move to Free limits.`
+                        : "You keep Pro until the end of this billing period."}{" "}
+                      Keep Pro to undo the cancel without paying again.
+                    </p>
+                  </div>
+                )}
+
                 {!isPro && (
                   <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
                     <p className="text-sm font-semibold text-indigo-900">
@@ -353,6 +448,15 @@ function SettingsPageContent() {
                 )}
 
                 <div className="flex flex-wrap gap-3 pt-1">
+                  {billing?.canReactivate && (
+                    <button
+                      onClick={handleKeepPro}
+                      disabled={billingBusy}
+                      className="gradient-button px-5 py-2.5 rounded-lg text-sm font-medium disabled:opacity-50"
+                    >
+                      {billingBusy ? "Saving…" : "Keep Pro"}
+                    </button>
+                  )}
                   {billing?.canUpgrade && (
                     <button
                       onClick={handleUpgrade}

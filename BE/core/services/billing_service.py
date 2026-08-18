@@ -28,6 +28,10 @@ def get_or_create_profile(user_id: str) -> UserProfile:
 
 
 def resolve_plan(profile: UserProfile) -> str:
+    """
+    Pro while Dodo status is active — including when cancel_at_period_end is set.
+    Access ends only after status leaves the active set (cancelled/expired/etc.).
+    """
     status = (profile.subscription_status or "").lower()
     if profile.plan == PLAN_PRO and status in ACTIVE_SUBSCRIPTION_STATUSES:
         return PLAN_PRO
@@ -35,6 +39,43 @@ def resolve_plan(profile: UserProfile) -> str:
     if status in ACTIVE_SUBSCRIPTION_STATUSES and profile.dodo_subscription_id:
         return PLAN_PRO
     return PLAN_FREE
+
+
+def _format_billing_date(value: Any) -> str | None:
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+    text = str(value).strip()
+    return text or None
+
+
+def billing_status_payload(user_id: str) -> dict[str, Any]:
+    profile = get_or_create_profile(user_id)
+    plan = resolve_plan(profile)
+    limits = limits_for_plan(plan)
+    usage = keyword_usage(user_id)
+    remaining = {
+        p: max(0, limits.get(p, 0) - usage.get(p, 0)) for p in METERED_PLATFORMS
+    }
+    cancel_at_period_end = bool(profile.cancel_at_period_end) and plan == PLAN_PRO
+    return {
+        "plan": plan,
+        "subscriptionStatus": profile.subscription_status,
+        "dodoCustomerId": profile.dodo_customer_id,
+        "dodoSubscriptionId": profile.dodo_subscription_id,
+        "cancelAtPeriodEnd": cancel_at_period_end,
+        "nextBillingDate": profile.next_billing_date,
+        "limits": limits,
+        "usage": usage,
+        "remaining": remaining,
+        "canUpgrade": plan != PLAN_PRO,
+        "canReactivate": cancel_at_period_end and bool(profile.dodo_subscription_id),
+        "canManageBilling": bool(profile.dodo_customer_id),
+    }
 
 
 def keyword_usage(user_id: str) -> dict[str, int]:
@@ -101,27 +142,6 @@ def check_can_add_keywords(
     return True, None, None
 
 
-def billing_status_payload(user_id: str) -> dict[str, Any]:
-    profile = get_or_create_profile(user_id)
-    plan = resolve_plan(profile)
-    limits = limits_for_plan(plan)
-    usage = keyword_usage(user_id)
-    remaining = {
-        p: max(0, limits.get(p, 0) - usage.get(p, 0)) for p in METERED_PLATFORMS
-    }
-    return {
-        "plan": plan,
-        "subscriptionStatus": profile.subscription_status,
-        "dodoCustomerId": profile.dodo_customer_id,
-        "dodoSubscriptionId": profile.dodo_subscription_id,
-        "limits": limits,
-        "usage": usage,
-        "remaining": remaining,
-        "canUpgrade": plan != PLAN_PRO,
-        "canManageBilling": bool(profile.dodo_customer_id),
-    }
-
-
 def _attr(obj: Any, *names: str) -> Any:
     if obj is None:
         return None
@@ -178,6 +198,14 @@ def apply_subscription_to_profile(
     customer_id = _customer_id(subscription)
     subscription_id = _attr(subscription, "subscription_id", "subscriptionId")
     status = _normalize_status(_attr(subscription, "status"))
+    cancel_flag = _attr(
+        subscription,
+        "cancel_at_next_billing_date",
+        "cancelAtNextBillingDate",
+    )
+    next_billing = _format_billing_date(
+        _attr(subscription, "next_billing_date", "nextBillingDate")
+    )
 
     if customer_id:
         profile.dodo_customer_id = customer_id
@@ -188,18 +216,47 @@ def apply_subscription_to_profile(
 
     if status in ACTIVE_SUBSCRIPTION_STATUSES:
         profile.plan = PLAN_PRO
+        profile.cancel_at_period_end = bool(cancel_flag)
+        if next_billing:
+            profile.next_billing_date = next_billing
     else:
+        # cancelled / on_hold / expired / failed / paused → free access
         profile.plan = PLAN_FREE
+        profile.cancel_at_period_end = False
+        if next_billing:
+            profile.next_billing_date = next_billing
 
     profile.save()
     logger.info(
-        "Synced billing for user %s → plan=%s status=%s sub=%s",
+        "Synced billing for user %s → plan=%s status=%s cancel_at_period_end=%s sub=%s",
         profile.user_id,
         profile.plan,
         profile.subscription_status,
+        profile.cancel_at_period_end,
         profile.dodo_subscription_id,
     )
     return profile
+
+
+def reactivate_plan(user_id: str) -> dict[str, Any]:
+    """
+    Clear cancel_at_next_billing_date on the user's active Pro subscription.
+    Prefer this over creating a second checkout while still in the paid period.
+    """
+    from core.services import dodo_service
+
+    profile = get_or_create_profile(user_id)
+    if resolve_plan(profile) != PLAN_PRO:
+        raise ValueError("No active Pro subscription to reactivate.")
+    if not profile.cancel_at_period_end:
+        return billing_status_payload(user_id)
+    if not profile.dodo_subscription_id:
+        raise ValueError("Missing subscription id; open Manage billing to continue.")
+
+    updated = dodo_service.reactivate_subscription(profile.dodo_subscription_id)
+    apply_subscription_to_profile(profile, updated)
+    profile.reload()
+    return billing_status_payload(user_id)
 
 
 def _resolve_user_id_from_subscription(subscription: Any) -> str | None:

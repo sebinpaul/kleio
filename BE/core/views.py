@@ -780,22 +780,48 @@ def billing_sync(request):
 
 
 @api_view(['POST'])
-def billing_checkout(request):
-    """Create a Dodo checkout session for Pro."""
+def billing_reactivate(request):
+    """Undo a scheduled period-end cancel without creating a new subscription."""
     user_id = _user_id(request)
     try:
-        profile = billing_service.get_or_create_profile(user_id)
-        if billing_service.resolve_plan(profile) == 'pro':
-            return Response(
-                {'error': 'You are already on the Pro plan.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        email = clerk_user_service.get_user_email(user_id)
+        # Refresh from Dodo first so cancel_at_period_end is accurate.
+        billing_service.sync_plan_from_dodo(user_id, email=email)
+        payload = billing_service.reactivate_plan(user_id)
+        return Response(payload)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception:
+        logger.exception("Failed to reactivate billing for user %s", user_id)
+        return Response(
+            {'error': 'Failed to keep Pro. Please try Manage billing.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
+
+@api_view(['POST'])
+def billing_checkout(request):
+    """Create a Dodo checkout session for Pro (or reactivate a scheduled cancel)."""
+    user_id = _user_id(request)
+    try:
         user_info = clerk_user_service.get_user_info(user_id) or {}
         email = clerk_user_service.get_user_email(user_id)
         if not email:
             return Response(
                 {'error': 'Could not resolve your email for checkout.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Sync before deciding — avoids duplicate checkouts after portal cancel.
+        billing_service.sync_plan_from_dodo(user_id, email=email)
+        profile = billing_service.get_or_create_profile(user_id)
+
+        if billing_service.resolve_plan(profile) == 'pro':
+            if profile.cancel_at_period_end and profile.dodo_subscription_id:
+                payload = billing_service.reactivate_plan(user_id)
+                return Response({'reactivated': True, **payload})
+            return Response(
+                {'error': 'You are already on the Pro plan.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -820,6 +846,8 @@ def billing_checkout(request):
             profile.dodo_customer_id = result["customerId"]
             profile.save()
         return Response(result)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
     except RuntimeError as exc:
         logger.exception("Checkout misconfiguration for user %s", user_id)
         return Response({'error': str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -844,7 +872,7 @@ def billing_portal(request):
             )
 
         frontend = (django_settings.FRONTEND_URL or 'http://localhost:3000').rstrip('/')
-        return_url = f"{frontend}/dashboard/settings"
+        return_url = f"{frontend}/dashboard/settings?billing=portal"
         link = dodo_service.create_customer_portal_link(
             dodo_customer_id=profile.dodo_customer_id,
             return_url=return_url,

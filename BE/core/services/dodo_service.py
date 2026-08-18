@@ -172,6 +172,23 @@ def retrieve_subscription(subscription_id: str) -> Any:
     return client.subscriptions.retrieve(subscription_id)
 
 
+def update_subscription(
+    subscription_id: str,
+    *,
+    cancel_at_next_billing_date: bool | None = None,
+) -> Any:
+    client = get_dodo_client()
+    kwargs: dict[str, Any] = {}
+    if cancel_at_next_billing_date is not None:
+        kwargs["cancel_at_next_billing_date"] = cancel_at_next_billing_date
+    return client.subscriptions.update(subscription_id, **kwargs)
+
+
+def reactivate_subscription(subscription_id: str) -> Any:
+    """Clear period-end cancel so the subscription renews again."""
+    return update_subscription(subscription_id, cancel_at_next_billing_date=False)
+
+
 def retrieve_customer(customer_id: str) -> Any:
     client = get_dodo_client()
     return client.customers.retrieve(customer_id)
