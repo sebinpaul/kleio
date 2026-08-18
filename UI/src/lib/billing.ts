@@ -63,6 +63,7 @@ export function planDisplayName(plan: string | undefined): string {
 
 export const BILLING_SETTINGS_HREF = "/dashboard/settings#billing";
 export const BILLING_UPGRADE_HREF = "/dashboard/settings?upgrade=pro#billing";
+export const KEYWORD_SELECTION_HREF = "/dashboard/settings#keyword-selection";
 
 export const METERED_PLATFORMS: Platform[] = [
   Platform.REDDIT,

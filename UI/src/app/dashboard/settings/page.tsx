@@ -4,6 +4,7 @@ import React, { Suspense, useCallback, useEffect, useRef, useState } from "react
 import { useSearchParams } from "next/navigation";
 import { useApi, ApiUnauthorizedError, type BillingStatus } from "@/lib/api";
 import { planDisplayName } from "@/lib/billing";
+import KeywordSelectionPanel from "@/components/KeywordSelectionPanel";
 
 const PLATFORM_ROWS: { key: string; label: string }[] = [
   { key: "reddit", label: "Reddit" },
@@ -57,6 +58,7 @@ function SettingsPageContent() {
   const successSyncStarted = useRef(false);
   const portalSyncStarted = useRef(false);
   const billingSectionRef = useRef<HTMLDivElement>(null);
+  const selectionSectionRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -106,7 +108,11 @@ function SettingsPageContent() {
         try {
           const status = await api.syncBillingStatus();
           setBilling(status);
-          if (status.plan === "pro" && status.cancelAtPeriodEnd) {
+          if (status.needsKeywordSelection) {
+            setBillingMessage(
+              "You're on Free. Pick which keywords to keep active below."
+            );
+          } else if (status.plan === "pro" && status.cancelAtPeriodEnd) {
             const until = formatBillingDate(status.nextBillingDate);
             setBillingMessage(
               until
@@ -178,9 +184,13 @@ function SettingsPageContent() {
   useEffect(() => {
     if (loading) return;
     if (typeof window === "undefined") return;
+    if (billing?.needsKeywordSelection) {
+      selectionSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
     if (window.location.hash !== "#billing") return;
     billingSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [loading]);
+  }, [loading, billing?.needsKeywordSelection]);
 
   useEffect(() => {
     const shouldUpgrade =
@@ -280,10 +290,19 @@ function SettingsPageContent() {
     }
   };
 
+  const handleSelectionComplete = (status: BillingStatus) => {
+    setBilling(status);
+    setBillingMessage(
+      "Keyword selection saved. Monitoring continues for the ones you kept."
+    );
+    setError(null);
+  };
+
   const isPro = billing?.plan === "pro";
   const cancelAtPeriodEnd = Boolean(billing?.cancelAtPeriodEnd);
   const accessUntil = formatBillingDate(billing?.nextBillingDate);
   const planLabel = planDisplayName(billing?.plan);
+  const needsKeywordSelection = Boolean(billing?.needsKeywordSelection);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20">
@@ -310,6 +329,15 @@ function SettingsPageContent() {
             {saved && (
               <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3">
                 Settings saved.
+              </div>
+            )}
+
+            {needsKeywordSelection && (
+              <div ref={selectionSectionRef}>
+                <KeywordSelectionPanel
+                  onComplete={handleSelectionComplete}
+                  onError={(message) => setError(message)}
+                />
               </div>
             )}
 
@@ -344,7 +372,9 @@ function SettingsPageContent() {
                             ? `Full platform coverage until ${accessUntil}. Cancel is scheduled — keep Pro to renew.`
                             : "Full platform coverage for the rest of this billing period. Cancel is scheduled."
                           : "Full platform coverage across Reddit, HN, X, and YouTube."
-                        : "Reddit and Hacker News starter limits. Upgrade for X, YouTube, and more keywords."}
+                        : needsKeywordSelection
+                          ? "Pick which keywords stay active below — extras pause until you upgrade."
+                          : "Reddit and Hacker News starter limits. Upgrade for X, YouTube, and more keywords."}
                     </p>
                     {billing?.subscriptionStatus && (
                       <p className="mt-2 text-xs text-white/60 capitalize">
@@ -382,6 +412,7 @@ function SettingsPageContent() {
                       {PLATFORM_ROWS.map(({ key, label }) => {
                         const used = billing.usage[key] ?? 0;
                         const limit = billing.limits[key] ?? 0;
+                        const total = billing.totalUsage?.[key] ?? used;
                         const locked = limit <= 0;
                         const pct = usagePercent(used, limit);
                         return (
@@ -390,11 +421,19 @@ function SettingsPageContent() {
                               <span className="font-medium text-slate-800">{label}</span>
                               <span className="tabular-nums text-slate-500">
                                 {locked ? (
-                                  <span className="text-amber-700">Pro only</span>
+                                  <span className="text-amber-700">
+                                    {total > 0 ? `${total} paused · Pro only` : "Pro only"}
+                                  </span>
                                 ) : (
                                   <>
                                     {used}
                                     <span className="text-slate-400"> / {limit}</span>
+                                    {total > used && (
+                                      <span className="text-slate-400">
+                                        {" "}
+                                        · {total - used} paused
+                                      </span>
+                                    )}
                                   </>
                                 )}
                               </span>
@@ -421,14 +460,14 @@ function SettingsPageContent() {
                     </p>
                     <p className="mt-1 text-sm text-amber-800/90">
                       {accessUntil
-                        ? `You keep Pro access until ${accessUntil}. After that you’ll move to Free limits.`
+                        ? `You keep Pro access until ${accessUntil}. After that you’ll move to Free limits and may need to pick which keywords to keep.`
                         : "You keep Pro until the end of this billing period."}{" "}
                       Keep Pro to undo the cancel without paying again.
                     </p>
                   </div>
                 )}
 
-                {!isPro && (
+                {!isPro && !needsKeywordSelection && (
                   <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
                     <p className="text-sm font-semibold text-indigo-900">
                       Unlock with Pro — $17/mo

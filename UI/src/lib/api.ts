@@ -151,12 +151,38 @@ export interface BillingStatus {
   dodoSubscriptionId: string | null;
   cancelAtPeriodEnd?: boolean;
   nextBillingDate?: string | null;
+  needsKeywordSelection?: boolean;
   limits: Record<string, number>;
   usage: Record<string, number>;
+  totalUsage?: Record<string, number>;
   remaining?: Record<string, number>;
   canUpgrade: boolean;
   canReactivate?: boolean;
   canManageBilling: boolean;
+}
+
+export interface KeywordSelectionKeyword {
+  id: string;
+  keyword: string;
+  platform: string;
+  enabled: boolean;
+  createdAt: string | null;
+}
+
+export interface KeywordSelectionPlatform {
+  platform: string;
+  label: string;
+  limit: number;
+  requiresSelection: boolean;
+  locked: boolean;
+  keywords: KeywordSelectionKeyword[];
+}
+
+export interface KeywordSelectionPayload {
+  plan: "free" | "pro";
+  needsKeywordSelection: boolean;
+  platforms: KeywordSelectionPlatform[];
+  limits: Record<string, number>;
 }
 
 class ApiService {
@@ -437,6 +463,34 @@ class ApiService {
     });
     return this.parseJson(response, "Failed to open billing portal");
   }
+
+  async getKeywordSelection(auth: ApiAuthHandlers): Promise<KeywordSelectionPayload> {
+    const response = await this.request(
+      auth,
+      `${API_BASE_URL}/api/billing/keyword-selection`,
+      {
+        method: "GET",
+        headers: await this.getHeaders(auth),
+      }
+    );
+    return this.parseJson(response, "Failed to load keyword selection");
+  }
+
+  async applyKeywordSelection(
+    auth: ApiAuthHandlers,
+    keepIds: string[]
+  ): Promise<BillingStatus> {
+    const response = await this.request(
+      auth,
+      `${API_BASE_URL}/api/billing/keyword-selection`,
+      {
+        method: "POST",
+        headers: await this.getHeaders(auth),
+        body: JSON.stringify({ keepIds }),
+      }
+    );
+    return this.parseJson(response, "Failed to save keyword selection");
+  }
 }
 
 export const apiService = new ApiService();
@@ -487,6 +541,9 @@ export function useApi() {
       reactivateBilling: () => apiService.reactivateBilling(auth),
       createBillingCheckout: () => apiService.createBillingCheckout(auth),
       createBillingPortal: () => apiService.createBillingPortal(auth),
+      getKeywordSelection: () => apiService.getKeywordSelection(auth),
+      applyKeywordSelection: (keepIds: string[]) =>
+        apiService.applyKeywordSelection(auth, keepIds),
     }),
     [auth]
   );

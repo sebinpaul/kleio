@@ -189,6 +189,10 @@ class UserProfile(Document):
     next_billing_date = StringField(
         help_text="ISO next billing / access-end date from Dodo"
     )
+    needs_keyword_selection = BooleanField(
+        default=False,
+        help_text="True when Free/downgrade requires picking which keywords to keep",
+    )
     created_at = DateTimeField(default=timezone.now)
     updated_at = DateTimeField(default=timezone.now)
     

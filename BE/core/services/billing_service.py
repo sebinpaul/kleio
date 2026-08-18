@@ -57,11 +57,23 @@ def billing_status_payload(user_id: str) -> dict[str, Any]:
     profile = get_or_create_profile(user_id)
     plan = resolve_plan(profile)
     limits = limits_for_plan(plan)
-    usage = keyword_usage(user_id)
+    usage = keyword_usage(user_id, active_only=True)
+    total_usage = keyword_usage(user_id, active_only=False)
     remaining = {
         p: max(0, limits.get(p, 0) - usage.get(p, 0)) for p in METERED_PLATFORMS
     }
     cancel_at_period_end = bool(profile.cancel_at_period_end) and plan == PLAN_PRO
+
+    # Auto-pause if somehow still actively over Free caps.
+    if plan != PLAN_PRO and _has_over_limit_active(usage, limits):
+        enforce_downgrade_keyword_limits(user_id)
+        profile.reload()
+        usage = keyword_usage(user_id, active_only=True)
+        total_usage = keyword_usage(user_id, active_only=False)
+        remaining = {
+            p: max(0, limits.get(p, 0) - usage.get(p, 0)) for p in METERED_PLATFORMS
+        }
+
     return {
         "plan": plan,
         "subscriptionStatus": profile.subscription_status,
@@ -69,8 +81,10 @@ def billing_status_payload(user_id: str) -> dict[str, Any]:
         "dodoSubscriptionId": profile.dodo_subscription_id,
         "cancelAtPeriodEnd": cancel_at_period_end,
         "nextBillingDate": profile.next_billing_date,
+        "needsKeywordSelection": bool(profile.needs_keyword_selection),
         "limits": limits,
         "usage": usage,
+        "totalUsage": total_usage,
         "remaining": remaining,
         "canUpgrade": plan != PLAN_PRO,
         "canReactivate": cancel_at_period_end and bool(profile.dodo_subscription_id),
@@ -78,14 +92,28 @@ def billing_status_payload(user_id: str) -> dict[str, Any]:
     }
 
 
-def keyword_usage(user_id: str) -> dict[str, int]:
+def keyword_usage(user_id: str, *, active_only: bool = True) -> dict[str, int]:
     usage = {p: 0 for p in METERED_PLATFORMS}
     for platform in METERED_PLATFORMS:
-        usage[platform] = Keyword.objects(
-            user_id=user_id,
-            platform__in=[platform, "all"],
-        ).count()
+        query: dict[str, Any] = {
+            "user_id": user_id,
+            "platform__in": [platform, "all"],
+        }
+        if active_only:
+            query["is_active"] = True
+        usage[platform] = Keyword.objects(**query).count()
     return usage
+
+
+def _has_over_limit_active(
+    usage: dict[str, int], limits: dict[str, int]
+) -> bool:
+    for platform in METERED_PLATFORMS:
+        limit = limits.get(platform, 0)
+        used = usage.get(platform, 0)
+        if used > limit:
+            return True
+    return False
 
 
 def check_can_add_keyword(user_id: str, platform: str) -> tuple[bool, str | None]:
@@ -106,7 +134,7 @@ def check_can_add_keywords(
     profile = get_or_create_profile(user_id)
     plan = resolve_plan(profile)
     limits = limits_for_plan(plan)
-    usage = keyword_usage(user_id)
+    usage = keyword_usage(user_id, active_only=True)
     projected = dict(usage)
 
     expanded: list[str] = []
@@ -195,6 +223,7 @@ def apply_subscription_to_profile(
     subscription: Any,
 ) -> UserProfile:
     """Write subscription fields onto an existing profile and persist."""
+    previous_plan = resolve_plan(profile)
     customer_id = _customer_id(subscription)
     subscription_id = _attr(subscription, "subscription_id", "subscriptionId")
     status = _normalize_status(_attr(subscription, "status"))
@@ -219,6 +248,8 @@ def apply_subscription_to_profile(
         profile.cancel_at_period_end = bool(cancel_flag)
         if next_billing:
             profile.next_billing_date = next_billing
+        # Upgrading clears the Free pick-flow requirement.
+        profile.needs_keyword_selection = False
     else:
         # cancelled / on_hold / expired / failed / paused → free access
         profile.plan = PLAN_FREE
@@ -235,7 +266,205 @@ def apply_subscription_to_profile(
         profile.cancel_at_period_end,
         profile.dodo_subscription_id,
     )
+
+    new_plan = resolve_plan(profile)
+    if previous_plan == PLAN_PRO and new_plan == PLAN_FREE:
+        enforce_downgrade_keyword_limits(profile.user_id)
+    elif new_plan == PLAN_FREE:
+        # Catch Free users who drifted over-limit without a Pro→Free transition.
+        maybe_flag_over_limit_selection(profile.user_id)
+
     return profile
+
+
+def enforce_downgrade_keyword_limits(user_id: str) -> None:
+    """
+    After Pro → Free: pause keywords that don't fit Free caps and require a pick.
+
+    - Platforms with limit 0 (X/YouTube on Free): deactivate all.
+    - Platforms over the Free active cap: deactivate all on that platform so the
+      user must choose which ones to keep.
+    """
+    profile = get_or_create_profile(user_id)
+    plan = resolve_plan(profile)
+    limits = limits_for_plan(plan)
+    needs_selection = False
+
+    for platform in METERED_PLATFORMS:
+        limit = limits.get(platform, 0)
+        keywords = list(
+            Keyword.objects(
+                user_id=user_id,
+                platform__in=[platform, "all"],
+            ).order_by("-created_at")
+        )
+        active = [k for k in keywords if k.is_active]
+
+        if limit <= 0:
+            for kw in active:
+                kw.is_active = False
+                kw.save()
+            continue
+
+        if len(active) > limit:
+            needs_selection = True
+            for kw in active:
+                kw.is_active = False
+                kw.save()
+
+    profile.needs_keyword_selection = needs_selection
+    profile.save()
+    logger.info(
+        "Downgrade enforce for %s: needs_keyword_selection=%s",
+        user_id,
+        needs_selection,
+    )
+
+
+def maybe_flag_over_limit_selection(user_id: str) -> None:
+    """If active keywords already exceed plan limits, require selection."""
+    profile = get_or_create_profile(user_id)
+    plan = resolve_plan(profile)
+    if plan == PLAN_PRO:
+        return
+    limits = limits_for_plan(plan)
+    usage = keyword_usage(user_id, active_only=True)
+    if _has_over_limit_active(usage, limits):
+        # Pause over-limit platforms the same way as a downgrade.
+        enforce_downgrade_keyword_limits(user_id)
+
+
+def keyword_selection_payload(user_id: str) -> dict[str, Any]:
+    """Candidates + limits for the pick-which-to-keep UI."""
+    profile = get_or_create_profile(user_id)
+    plan = resolve_plan(profile)
+    limits = limits_for_plan(plan)
+    platforms_out: list[dict[str, Any]] = []
+
+    for platform in METERED_PLATFORMS:
+        limit = limits.get(platform, 0)
+        keywords = list(
+            Keyword.objects(
+                user_id=user_id,
+                platform__in=[platform, "all"],
+            ).order_by("-created_at")
+        )
+        if not keywords and limit > 0:
+            continue
+        # Always include platforms that have keywords or require a choice.
+        if not keywords and limit <= 0:
+            continue
+        platforms_out.append(
+            {
+                "platform": platform,
+                "label": PLATFORM_LABELS.get(platform, platform),
+                "limit": limit,
+                "requiresSelection": limit > 0 and len(keywords) > limit,
+                "locked": limit <= 0,
+                "keywords": [
+                    {
+                        "id": str(k.id),
+                        "keyword": k.keyword,
+                        "platform": k.platform,
+                        "enabled": bool(k.is_active),
+                        "createdAt": k.created_at.isoformat() if k.created_at else None,
+                    }
+                    for k in keywords
+                ],
+            }
+        )
+
+    return {
+        "plan": plan,
+        "needsKeywordSelection": bool(profile.needs_keyword_selection),
+        "platforms": platforms_out,
+        "limits": limits,
+    }
+
+
+def apply_keyword_selection(
+    user_id: str, keep_ids: list[str]
+) -> dict[str, Any]:
+    """
+    Activate the chosen keywords (within plan caps) and pause the rest.
+
+    keep_ids: flat list of keyword document ids the user wants to keep active.
+    """
+    profile = get_or_create_profile(user_id)
+    plan = resolve_plan(profile)
+    limits = limits_for_plan(plan)
+    keep_set = {str(x) for x in keep_ids}
+
+    # Validate ownership and group by platform.
+    owned = {
+        str(k.id): k
+        for k in Keyword.objects(user_id=user_id, id__in=list(keep_set))
+    }
+    unknown = keep_set - set(owned.keys())
+    if unknown:
+        raise ValueError("One or more keywords were not found on your account.")
+
+    by_platform: dict[str, list[Keyword]] = {p: [] for p in METERED_PLATFORMS}
+    for kw in owned.values():
+        platform = kw.platform if kw.platform != "all" else "reddit"
+        if platform not in by_platform:
+            raise ValueError(f"Unsupported platform: {platform}")
+        by_platform[platform].append(kw)
+
+    for platform, selected in by_platform.items():
+        limit = limits.get(platform, 0)
+        if len(selected) > limit:
+            label = PLATFORM_LABELS.get(platform, platform)
+            raise ValueError(
+                f"You can keep at most {limit} {label} keyword(s) on the "
+                f"{plan.capitalize()} plan."
+            )
+        if limit <= 0 and selected:
+            label = PLATFORM_LABELS.get(platform, platform)
+            raise ValueError(
+                f"{label} keywords are not available on the {plan.capitalize()} plan."
+            )
+
+    # Apply per platform:
+    # - limit 0: deactivate all
+    # - over Free cap: activate only keep_ids
+    # - under/at cap with no keep_ids for that platform: leave alone
+    # - under/at cap with keep_ids: honor the selection
+    for platform in METERED_PLATFORMS:
+        limit = limits.get(platform, 0)
+        keywords = list(
+            Keyword.objects(user_id=user_id, platform__in=[platform, "all"])
+        )
+        selected_ids = {str(k.id) for k in by_platform.get(platform, [])}
+
+        if limit <= 0:
+            for kw in keywords:
+                if kw.is_active:
+                    kw.is_active = False
+                    kw.save()
+            continue
+
+        over_cap = len(keywords) > limit
+        if not over_cap and not selected_ids:
+            continue
+
+        for kw in keywords:
+            should_active = str(kw.id) in selected_ids
+            if kw.is_active != should_active:
+                kw.is_active = should_active
+                kw.save()
+
+    profile.needs_keyword_selection = False
+    profile.save()
+    return billing_status_payload(user_id)
+
+
+def check_can_activate_keyword(user_id: str, keyword: Keyword) -> tuple[bool, str | None]:
+    """Guard re-enabling a paused keyword against plan active caps."""
+    if keyword.is_active:
+        return True, None
+    platform = keyword.platform if keyword.platform != "all" else "reddit"
+    return check_can_add_keyword(user_id, platform)
 
 
 def reactivate_plan(user_id: str) -> dict[str, Any]:

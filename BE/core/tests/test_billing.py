@@ -196,3 +196,75 @@ class BillingLimitsTests(MongoTestCase):
         self.assertFalse(payload["cancelAtPeriodEnd"])
         self.assertFalse(payload["canReactivate"])
         mock_reactivate.assert_called_once_with("sub_9")
+
+    def test_downgrade_pauses_over_limit_and_requires_selection(self):
+        profile = billing_service.get_or_create_profile("u10")
+        profile.plan = "pro"
+        profile.subscription_status = "active"
+        profile.dodo_subscription_id = "sub_10"
+        profile.save()
+
+        k1 = self.create_keyword(user_id="u10", platform="reddit", keyword="a")
+        k2 = self.create_keyword(user_id="u10", platform="reddit", keyword="b")
+        k3 = self.create_keyword(user_id="u10", platform="reddit", keyword="c")
+        tw = self.create_keyword(user_id="u10", platform="twitter", keyword="x")
+        hn = self.create_keyword(user_id="u10", platform="hackernews", keyword="hn1")
+
+        class FakeCustomer:
+            customer_id = "cus_10"
+
+        class FakeSub:
+            subscription_id = "sub_10"
+            status = "cancelled"
+            customer = FakeCustomer()
+            metadata = {"clerk_user_id": "u10"}
+
+        billing_service.apply_subscription_event(FakeSub())
+        profile.reload()
+        self.assertEqual(profile.plan, "free")
+        self.assertTrue(profile.needs_keyword_selection)
+
+        for kw in (k1, k2, k3, tw):
+            kw.reload()
+            self.assertFalse(kw.is_active)
+        # HN still within Free cap (2) — stays active
+        hn.reload()
+        self.assertTrue(hn.is_active)
+
+        # Keep two reddit keywords; HN under-cap left alone when not in keepIds
+        billing_service.apply_keyword_selection("u10", [str(k1.id), str(k2.id)])
+        profile.reload()
+        self.assertFalse(profile.needs_keyword_selection)
+
+        k1.reload()
+        k2.reload()
+        k3.reload()
+        tw.reload()
+        hn.reload()
+        self.assertTrue(k1.is_active)
+        self.assertTrue(k2.is_active)
+        self.assertFalse(k3.is_active)
+        self.assertFalse(tw.is_active)
+        self.assertTrue(hn.is_active)
+
+    def test_keyword_selection_rejects_over_cap(self):
+        profile = billing_service.get_or_create_profile("u11")
+        profile.plan = "free"
+        profile.subscription_status = "cancelled"
+        profile.needs_keyword_selection = True
+        profile.save()
+
+        k1 = self.create_keyword(
+            user_id="u11", platform="reddit", keyword="a", is_active=False
+        )
+        k2 = self.create_keyword(
+            user_id="u11", platform="reddit", keyword="b", is_active=False
+        )
+        k3 = self.create_keyword(
+            user_id="u11", platform="reddit", keyword="c", is_active=False
+        )
+
+        with self.assertRaises(ValueError):
+            billing_service.apply_keyword_selection(
+                "u11", [str(k1.id), str(k2.id), str(k3.id)]
+            )

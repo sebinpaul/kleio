@@ -370,6 +370,19 @@ def update_keyword(request, keyword_id, platform=None):
             enabled, error = parse_enabled(data['enabled'])
             if error:
                 return error
+            if enabled and not keyword.is_active:
+                ok, limit_error = billing_service.check_can_activate_keyword(
+                    user_id, keyword
+                )
+                if not ok:
+                    return Response(
+                        {
+                            'error': limit_error,
+                            'code': 'plan_limit',
+                            'platform': keyword.platform,
+                        },
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
             keyword.is_active = enabled
 
         extra_settings, error = _parse_keyword_settings(data, platform=keyword.platform)
@@ -408,7 +421,20 @@ def toggle_keyword(request, keyword_id, platform=None):
         if not keyword:
             return Response({'error': 'Keyword not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        keyword.is_active = not keyword.is_active
+        turning_on = not keyword.is_active
+        if turning_on:
+            ok, limit_error = billing_service.check_can_activate_keyword(user_id, keyword)
+            if not ok:
+                return Response(
+                    {
+                        'error': limit_error,
+                        'code': 'plan_limit',
+                        'platform': keyword.platform,
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        keyword.is_active = turning_on
         keyword.updated_at = timezone.now()
         keyword.save()
         return Response(_keyword_response(keyword))
@@ -795,6 +821,37 @@ def billing_reactivate(request):
         logger.exception("Failed to reactivate billing for user %s", user_id)
         return Response(
             {'error': 'Failed to keep Pro. Please try Manage billing.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(['GET', 'POST'])
+def billing_keyword_selection(request):
+    """
+    GET: platforms + keywords for pick-which-to-keep.
+    POST: { keepIds: string[] } — activate selected, pause the rest within plan caps.
+    """
+    user_id = _user_id(request)
+    try:
+        if request.method == 'GET':
+            return Response(billing_service.keyword_selection_payload(user_id))
+
+        keep_ids = request.data.get('keepIds') or request.data.get('keep_ids') or []
+        if not isinstance(keep_ids, list):
+            return Response(
+                {'error': 'keepIds must be a list of keyword ids.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        payload = billing_service.apply_keyword_selection(
+            user_id, [str(x) for x in keep_ids]
+        )
+        return Response(payload)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception:
+        logger.exception("Failed keyword selection for user %s", user_id)
+        return Response(
+            {'error': 'Failed to save keyword selection.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 

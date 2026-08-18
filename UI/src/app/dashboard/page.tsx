@@ -10,7 +10,11 @@ import AddKeywordPlatformPicker from "@/components/AddKeywordPlatformPicker";
 import { Platform } from "@/lib/enums";
 import { Button } from "@/components/ui/button";
 import { useApi, ApiUnauthorizedError, type BillingStatus } from "@/lib/api";
-import { BILLING_UPGRADE_HREF, canAddAnyKeyword } from "@/lib/billing";
+import {
+  BILLING_UPGRADE_HREF,
+  KEYWORD_SELECTION_HREF,
+  canAddAnyKeyword,
+} from "@/lib/billing";
 
 export default function Dashboard() {
   const api = useApi();
@@ -52,7 +56,16 @@ export default function Dashboard() {
       </div>
 
       <div className="px-8 py-8 space-y-8">
-        {!canAdd && billing && (
+        {billing?.needsKeywordSelection && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Your plan dropped below your keyword count.{" "}
+            <Link href={KEYWORD_SELECTION_HREF} className="font-semibold underline">
+              Pick which keywords to keep
+            </Link>{" "}
+            — extras stay paused until you choose or upgrade.
+          </div>
+        )}
+        {!canAdd && billing && !billing.needsKeywordSelection && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             You&apos;ve hit your keyword limits on every available platform.{" "}
             <Link href={BILLING_UPGRADE_HREF} className="font-semibold underline">
