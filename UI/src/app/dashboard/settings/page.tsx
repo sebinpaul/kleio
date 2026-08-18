@@ -43,6 +43,7 @@ function SettingsPageContent() {
   const [saved, setSaved] = useState(false);
   const [billingMessage, setBillingMessage] = useState<string | null>(null);
   const upgradeStarted = useRef(false);
+  const successSyncStarted = useRef(false);
   const billingSectionRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -53,7 +54,21 @@ function SettingsPageContent() {
         api.getBillingStatus(),
       ]);
       setEmailNotifications(settings.emailNotifications);
-      setBilling(billingStatus);
+      // Recover stuck Free accounts that already have a Dodo customer (webhook miss).
+      if (
+        billingStatus.plan !== "pro" &&
+        billingStatus.dodoCustomerId &&
+        searchParams.get("billing") !== "success"
+      ) {
+        try {
+          const synced = await api.syncBillingStatus();
+          setBilling(synced);
+        } catch {
+          setBilling(billingStatus);
+        }
+      } else {
+        setBilling(billingStatus);
+      }
       setError(null);
     } catch (err) {
       if (err instanceof ApiUnauthorizedError) return;
@@ -61,7 +76,7 @@ function SettingsPageContent() {
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [api, searchParams]);
 
   useEffect(() => {
     load();
@@ -69,13 +84,57 @@ function SettingsPageContent() {
 
   useEffect(() => {
     const billingParam = searchParams.get("billing");
-    if (billingParam === "success") {
-      setBillingMessage("Payment received. Your Pro plan will activate shortly.");
-      load();
-    } else if (billingParam === "cancelled") {
+    if (billingParam === "cancelled") {
       setBillingMessage("Checkout cancelled. You can upgrade anytime.");
+      return;
     }
-  }, [searchParams, load]);
+    if (billingParam !== "success" || successSyncStarted.current) return;
+
+    successSyncStarted.current = true;
+    setBillingMessage("Payment received. Activating your Pro plan…");
+
+    let cancelled = false;
+    (async () => {
+      const delays = [0, 1500, 3000, 5000];
+      for (const delay of delays) {
+        if (cancelled) return;
+        if (delay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+        try {
+          const status = await api.syncBillingStatus();
+          if (cancelled) return;
+          setBilling(status);
+          setLoading(false);
+          if (status.plan === "pro") {
+            setBillingMessage("You're on Pro. Limits and platforms are unlocked.");
+            return;
+          }
+          setBillingMessage(
+            "Payment received. Waiting for Dodo to confirm your subscription…"
+          );
+        } catch (err) {
+          if (err instanceof ApiUnauthorizedError) return;
+          if (!cancelled) {
+            setError(
+              err instanceof Error
+                ? err.message
+                : "Failed to activate plan. Refresh this page in a moment."
+            );
+          }
+        }
+      }
+      if (!cancelled) {
+        setBillingMessage(
+          "Payment received. If Pro isn't showing yet, refresh this page — activation can take a few seconds."
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, api]);
 
   useEffect(() => {
     if (loading) return;

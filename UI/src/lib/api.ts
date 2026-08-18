@@ -399,6 +399,14 @@ class ApiService {
     return this.parseJson(response, "Failed to fetch billing status");
   }
 
+  async syncBillingStatus(auth: ApiAuthHandlers): Promise<BillingStatus> {
+    const response = await this.request(auth, `${API_BASE_URL}/api/billing/sync`, {
+      method: "POST",
+      headers: await this.getHeaders(auth),
+    });
+    return this.parseJson(response, "Failed to sync billing status");
+  }
+
   async createBillingCheckout(
     auth: ApiAuthHandlers
   ): Promise<{ checkoutUrl: string; sessionId: string }> {
@@ -464,6 +472,7 @@ export function useApi() {
       updateNotificationSettings: (data: { emailNotifications: boolean }) =>
         apiService.updateNotificationSettings(auth, data),
       getBillingStatus: () => apiService.getBillingStatus(auth),
+      syncBillingStatus: () => apiService.syncBillingStatus(auth),
       createBillingCheckout: () => apiService.createBillingCheckout(auth),
       createBillingPortal: () => apiService.createBillingPortal(auth),
     }),

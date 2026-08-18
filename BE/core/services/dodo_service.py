@@ -31,6 +31,57 @@ def get_dodo_client() -> DodoPayments:
     return _client
 
 
+def _page_items(page: Any) -> list[Any]:
+    if page is None:
+        return []
+    items = getattr(page, "items", None)
+    if items is None and isinstance(page, dict):
+        items = page.get("items")
+    return list(items or [])
+
+
+def ensure_customer(
+    *,
+    email: str,
+    name: str | None,
+    clerk_user_id: str,
+    existing_customer_id: str | None = None,
+) -> str | None:
+    """Return a Dodo customer_id, creating or looking up by email as needed."""
+    client = get_dodo_client()
+    metadata = {"clerk_user_id": clerk_user_id}
+
+    if existing_customer_id:
+        return existing_customer_id
+
+    try:
+        created = client.customers.create(
+            email=email,
+            name=name or email.split("@")[0],
+            metadata=metadata,
+        )
+        customer_id = getattr(created, "customer_id", None)
+        if customer_id:
+            return customer_id
+    except Exception:
+        logger.info(
+            "Dodo customer create failed for %s; trying email lookup",
+            email,
+            exc_info=True,
+        )
+
+    try:
+        page = client.customers.list(email=email, page_size=10)
+        for customer in _page_items(page):
+            cid = getattr(customer, "customer_id", None)
+            if cid:
+                return cid
+    except Exception:
+        logger.exception("Dodo customer email lookup failed for %s", email)
+
+    return None
+
+
 def create_pro_checkout(
     *,
     customer_email: str,
@@ -46,23 +97,12 @@ def create_pro_checkout(
         raise RuntimeError("DODO_PRO_PRODUCT_ID is not configured")
 
     metadata = {"clerk_user_id": clerk_user_id}
-    customer_id = dodo_customer_id
-
-    if not customer_id:
-        try:
-            created = client.customers.create(
-                email=customer_email,
-                name=customer_name or customer_email.split("@")[0],
-                metadata=metadata,
-            )
-            customer_id = getattr(created, "customer_id", None)
-        except Exception:
-            logger.info(
-                "Dodo customer create failed for %s; falling back to email checkout",
-                customer_email,
-                exc_info=True,
-            )
-            customer_id = None
+    customer_id = ensure_customer(
+        email=customer_email,
+        name=customer_name,
+        clerk_user_id=clerk_user_id,
+        existing_customer_id=dodo_customer_id,
+    )
 
     if customer_id:
         customer: dict[str, Any] = {"customer_id": customer_id}
@@ -106,6 +146,40 @@ def create_customer_portal_link(
     if not link:
         raise RuntimeError("Dodo customer portal did not return a link")
     return link
+
+
+def list_subscriptions_for_customer(
+    customer_id: str,
+    *,
+    status: str | None = None,
+    product_id: str | None = None,
+) -> list[Any]:
+    client = get_dodo_client()
+    kwargs: dict[str, Any] = {
+        "customer_id": customer_id,
+        "page_size": 50,
+    }
+    if status:
+        kwargs["status"] = status
+    if product_id:
+        kwargs["product_id"] = product_id
+    page = client.subscriptions.list(**kwargs)
+    return _page_items(page)
+
+
+def retrieve_subscription(subscription_id: str) -> Any:
+    client = get_dodo_client()
+    return client.subscriptions.retrieve(subscription_id)
+
+
+def retrieve_customer(customer_id: str) -> Any:
+    client = get_dodo_client()
+    return client.customers.retrieve(customer_id)
+
+
+def retrieve_payment(payment_id: str) -> Any:
+    client = get_dodo_client()
+    return client.payments.retrieve(payment_id)
 
 
 def unwrap_webhook(payload: str | bytes, headers: Mapping[str, str]) -> Any:

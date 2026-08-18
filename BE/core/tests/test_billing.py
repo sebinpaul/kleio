@@ -1,5 +1,7 @@
 """Billing plan limit tests."""
 
+from unittest.mock import patch
+
 from core.services import billing_service
 from core.models import UserProfile
 from core.tests.base import MongoTestCase, NO_THROTTLE
@@ -69,3 +71,76 @@ class BillingLimitsTests(MongoTestCase):
         profile.reload()
         self.assertEqual(profile.plan, "free")
         self.assertEqual(billing_service.resolve_plan(profile), "free")
+
+    def test_webhook_matches_by_customer_id_without_metadata(self):
+        profile = billing_service.get_or_create_profile("u5")
+        profile.dodo_customer_id = "cus_5"
+        profile.save()
+
+        class FakeCustomer:
+            customer_id = "cus_5"
+
+        class FakeSub:
+            subscription_id = "sub_5"
+            status = "active"
+            customer = FakeCustomer()
+            metadata = {}
+
+        billing_service.apply_subscription_event(FakeSub())
+        profile.reload()
+        self.assertEqual(profile.plan, "pro")
+        self.assertEqual(profile.dodo_subscription_id, "sub_5")
+        self.assertEqual(billing_service.resolve_plan(profile), "pro")
+
+    @patch("core.services.dodo_service.list_subscriptions_for_customer")
+    @patch("core.services.dodo_service.retrieve_subscription")
+    def test_sync_plan_from_dodo_activates_pro(self, mock_retrieve, mock_list):
+        profile = billing_service.get_or_create_profile("u6")
+        profile.dodo_customer_id = "cus_6"
+        profile.save()
+
+        class FakeCustomer:
+            customer_id = "cus_6"
+
+        class FakeSub:
+            subscription_id = "sub_6"
+            status = "active"
+            customer = FakeCustomer()
+            metadata = {}
+
+        mock_retrieve.side_effect = Exception("none stored")
+        mock_list.side_effect = lambda *args, **kwargs: (
+            [FakeSub()] if kwargs.get("status") == "active" else []
+        )
+
+        payload = billing_service.sync_plan_from_dodo("u6")
+        self.assertEqual(payload["plan"], "pro")
+        profile.reload()
+        self.assertEqual(profile.dodo_subscription_id, "sub_6")
+
+    def test_apply_payment_event_pulls_subscription(self):
+        class FakeCustomer:
+            customer_id = "cus_7"
+
+        class FakePayment:
+            status = "succeeded"
+            subscription_id = "sub_7"
+            customer = FakeCustomer()
+            metadata = {"clerk_user_id": "u7"}
+
+        class FakeSub:
+            subscription_id = "sub_7"
+            status = "active"
+            customer = FakeCustomer()
+            metadata = {}
+
+        with patch(
+            "core.services.dodo_service.retrieve_subscription",
+            return_value=FakeSub(),
+        ):
+            billing_service.apply_payment_event(FakePayment())
+
+        profile = UserProfile.objects(user_id="u7").first()
+        self.assertIsNotNone(profile)
+        self.assertEqual(profile.plan, "pro")
+        self.assertEqual(billing_service.resolve_plan(profile), "pro")

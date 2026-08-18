@@ -745,11 +745,36 @@ def billing_status(request):
     """Current plan, usage, and limits for the authenticated user."""
     user_id = _user_id(request)
     try:
+        should_sync = str(request.query_params.get('sync', '')).lower() in {
+            '1',
+            'true',
+            'yes',
+        }
+        if should_sync:
+            email = clerk_user_service.get_user_email(user_id)
+            payload = billing_service.sync_plan_from_dodo(user_id, email=email)
+            return Response(payload)
         return Response(billing_service.billing_status_payload(user_id))
     except Exception:
         logger.exception("Failed to load billing status for user %s", user_id)
         return Response(
             {'error': 'An internal error occurred'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(['POST'])
+def billing_sync(request):
+    """Force-sync plan from Dodo (used after checkout return)."""
+    user_id = _user_id(request)
+    try:
+        email = clerk_user_service.get_user_email(user_id)
+        payload = billing_service.sync_plan_from_dodo(user_id, email=email)
+        return Response(payload)
+    except Exception:
+        logger.exception("Failed to sync billing for user %s", user_id)
+        return Response(
+            {'error': 'Failed to sync billing status. Please try again.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -790,7 +815,8 @@ def billing_checkout(request):
             return_url=return_url,
             cancel_url=cancel_url,
         )
-        if result.get("customerId") and not profile.dodo_customer_id:
+        # Always persist customer id before redirect so return-path sync can match.
+        if result.get("customerId"):
             profile.dodo_customer_id = result["customerId"]
             profile.save()
         return Response(result)
@@ -852,7 +878,11 @@ def dodo_webhook(request):
         return Response({'error': 'Invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
 
     event_type = getattr(event, 'type', None) or getattr(event, 'event_type', None)
+    if isinstance(event, dict):
+        event_type = event.get('type') or event.get('event_type') or event_type
     data = getattr(event, 'data', None)
+    if data is None and isinstance(event, dict):
+        data = event.get('data')
 
     subscription_events = {
         'subscription.active',
@@ -865,10 +895,18 @@ def dodo_webhook(request):
         'subscription.failed',
         'subscription.plan_changed',
     }
+    payment_events = {
+        'payment.succeeded',
+        'payment.failed',
+        'payment.processing',
+        'payment.cancelled',
+    }
 
     try:
         if event_type in subscription_events and data is not None:
             billing_service.apply_subscription_event(data)
+        elif event_type in payment_events and data is not None:
+            billing_service.apply_payment_event(data)
         else:
             logger.info("Ignoring Dodo webhook event type=%s", event_type)
     except Exception:
