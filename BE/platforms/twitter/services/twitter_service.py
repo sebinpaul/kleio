@@ -18,7 +18,7 @@ from urllib.parse import quote_plus
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from core.models import Keyword, Mention
-from core.enums import Platform, ContentType
+from core.enums import Platform, ContentType, MentionContentType
 from core.services.matching_engine import GenericMatchingEngine, MatchContext
 from core.services.email_service import email_notification_service
 from core.services.chrome_driver import create_driver as create_chrome_driver
@@ -509,7 +509,16 @@ class TwitterService:
             # Create mention
             mention = self._create_mention_from_tweet(tweet, keyword, match_result, content_type)
             if mention:
-                self._save_mention(mention, keyword, content_type)
+                self._save_mention(mention, keyword, mention.content_type)
+
+    def _map_content_type_to_mention_type(self, content_type: str) -> str:
+        """Map a monitored content type to the value the Mention model accepts."""
+        mapping = {
+            ContentType.COMMENTS.value: MentionContentType.COMMENT.value,
+            ContentType.TITLES.value: MentionContentType.TITLE.value,
+            ContentType.BODY.value: MentionContentType.BODY.value,
+        }
+        return mapping.get(content_type, MentionContentType.BODY.value)
     
     def _create_mention_from_tweet(self, tweet: Dict, keyword: Keyword, match_result, content_type: str) -> Optional[Mention]:
         """Create a Mention object from a Twitter tweet"""
@@ -533,7 +542,7 @@ class TwitterService:
                 source_url=tweet['url'],
                 platform=Platform.TWITTER.value,
                 subreddit='twitter',  # Using subreddit field for platform location
-                content_type=content_type,
+                content_type=self._map_content_type_to_mention_type(content_type),
                 matched_text=match_result.matched_text,
                 match_position=match_result.position,
                 match_confidence=match_result.confidence,

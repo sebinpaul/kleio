@@ -241,7 +241,7 @@ class HackerNewsService:
             if match_result:
                 mention = self._create_mention_from_story(keyword, story, match_result, MentionContentType.TITLE.value)
                 if mention:
-                    await self._save_mention(mention, keyword, ContentType.TITLES.value)
+                    await self._save_mention(mention, keyword)
             
             # Check URL/body if keyword monitors body content
             if self._should_process_keyword(keyword, ContentType.BODY.value):
@@ -253,7 +253,7 @@ class HackerNewsService:
                     if match_result:
                         mention = self._create_mention_from_story(keyword, story, match_result, MentionContentType.BODY.value)
                         if mention:
-                            await self._save_mention(mention, keyword, ContentType.BODY.value)
+                            await self._save_mention(mention, keyword)
     
     async def _process_comment(self, comment: Dict[str, Any], keywords: List[Keyword]):
         """Process a comment and check for keyword matches"""
@@ -275,7 +275,7 @@ class HackerNewsService:
             if match_result:
                 mention = self._create_mention_from_comment(keyword, comment, match_result)
                 if mention:
-                    await self._save_mention(mention, keyword, ContentType.COMMENTS.value)
+                    await self._save_mention(mention, keyword)
     
     def _should_process_keyword(self, keyword: Keyword, content_type: str) -> bool:
         """Check if keyword should process this content type"""

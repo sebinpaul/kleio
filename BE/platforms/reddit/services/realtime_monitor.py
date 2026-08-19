@@ -241,7 +241,7 @@ class RealtimeStreamMonitor:
                                 mention.save()
                                 logger.info(
                                     "platform=reddit mention created keyword='%s' type=%s subreddit=r/%s",
-                                    keyword.keyword, content_type, submission.subreddit.display_name,
+                                    keyword.keyword, mention_content_type, submission.subreddit.display_name,
                                 )
                                 
                                 # Send email notification
