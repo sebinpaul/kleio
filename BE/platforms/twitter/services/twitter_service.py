@@ -37,8 +37,13 @@ DEFAULT_NITTER_INSTANCES: List[str] = [
     "https://lightbrd.com/"
 ]
 
-# Hard floor between any Nitter navigations (keywords and instances share this clock).
+# Floor between two requests to the *same* instance. Hopping to a different host
+# is free, since rate limits and reputation are tracked per-origin.
 NITTER_MIN_REQUEST_INTERVAL_SECS = 300
+# Idle between keywords, so a full pass stays slow even when instances rotate.
+KEYWORD_INTERVAL_SECS = 300
+# A Cloudflare/Anubis interstitial either self-resolves within seconds or never.
+CHALLENGE_CLEAR_TIMEOUT_SECS = 15
 
 _RATE_LIMIT_MARKERS = (
     "rate limit",
@@ -144,13 +149,13 @@ class TwitterService:
         self.tweet_cache = {}  # Cache to avoid duplicates
         self.matching_engine = GenericMatchingEngine()
         self._cycle_mentions = 0
-        # Same floor as inter-request throttle; extra idle after a full keyword pass.
-        self.check_interval = NITTER_MIN_REQUEST_INTERVAL_SECS
+        # Extra idle after a full keyword pass, on top of the per-keyword gap.
+        self.check_interval = KEYWORD_INTERVAL_SECS
         # Nitter configuration
         self.nitter_driver = None
         self.nitter_instances = list(DEFAULT_NITTER_INSTANCES)
         self.instance_cooldowns: Dict[str, float] = {}
-        self._last_nitter_request_at = 0.0
+        self._instance_last_request_at: Dict[str, float] = {}
         # Headless default
         self.headless = True
         
@@ -203,13 +208,20 @@ class TwitterService:
             started = time.time()
             self._cycle_mentions = 0
             tweets_seen = 0
+            searched = 0
             
             for keyword in keywords:
                 if not self.is_monitoring:
                     break
                 if not self._should_monitor_keyword(keyword):
                     continue
-                
+
+                if searched:
+                    self._sleep_interruptible(KEYWORD_INTERVAL_SECS)
+                    if not self.is_monitoring:
+                        break
+                searched += 1
+
                 logger.debug("platform=twitter searching keyword='%s'", keyword.keyword)
                 try:
                     tweets = self._search_tweets_via_nitter(keyword, limit=20)
@@ -254,34 +266,55 @@ class TwitterService:
         except Exception:
             pass
 
-    def _throttle_nitter_request(self) -> None:
-        """Ensure at least NITTER_MIN_REQUEST_INTERVAL_SECS between any Nitter navigations."""
-        elapsed = time.time() - self._last_nitter_request_at
-        remaining = NITTER_MIN_REQUEST_INTERVAL_SECS - elapsed
-        if remaining > 0:
-            logger.debug("platform=twitter throttling %.0fs before next request", remaining)
-            # Sleep in small chunks so stop_stream_monitoring can end promptly.
-            deadline = time.time() + remaining
-            while self.is_monitoring and time.time() < deadline:
-                time.sleep(min(1.0, deadline - time.time()))
+    def _sleep_interruptible(self, seconds: float) -> None:
+        """Sleep in small chunks so stop_stream_monitoring can end promptly."""
+        deadline = time.time() + seconds
+        while self.is_monitoring and time.time() < deadline:
+            time.sleep(min(1.0, deadline - time.time()))
 
-    def _nitter_get(self, url: str) -> None:
-        """Navigate to a Nitter URL, enforcing the global min request interval."""
+    def _throttle_instance(self, normalized: str) -> None:
+        """Space out repeat hits on one instance; other hosts are unaffected."""
+        last = self._instance_last_request_at.get(normalized, 0.0)
+        remaining = NITTER_MIN_REQUEST_INTERVAL_SECS - (time.time() - last)
+        if remaining > 0:
+            logger.debug(
+                "platform=twitter throttling %.0fs before reusing %s", remaining, normalized
+            )
+            self._sleep_interruptible(remaining)
+
+    def _nitter_get(self, url: str, normalized: str) -> None:
+        """Navigate to a Nitter URL, spacing out repeat hits on that instance."""
         if not self.is_monitoring:
             return
-        self._throttle_nitter_request()
+        self._throttle_instance(normalized)
         if not self.is_monitoring:
             return
         self._ensure_nitter_driver()
         logger.debug("platform=twitter fetching url=%s", url)
         self.nitter_driver.get(url)
-        self._last_nitter_request_at = time.time()
+        self._instance_last_request_at[normalized] = time.time()
+
+    def _wait_for_challenge_clear(self, timeout: float = CHALLENGE_CLEAR_TIMEOUT_SECS) -> str:
+        """Poll the DOM while an interstitial decides, and return the settled status.
+
+        Reading the DOM is invisible to the remote host — no request leaves the
+        browser — so the only cost here is wall clock.
+        """
+        deadline = time.time() + timeout
+        while self.is_monitoring and time.time() < deadline:
+            time.sleep(1.0)
+            status = self._classify_nitter_page()
+            if status != "challenge":
+                logger.debug("platform=twitter challenge cleared status=%s", status)
+                return status
+        return "challenge"
 
     def _classify_nitter_page(self) -> str:
         """Classify the loaded page: timeline | empty | rate_limited | challenge | unknown.
 
-        Nitter is server-rendered, so driver.get() has already returned the final
-        page; there is nothing to poll for.
+        Nitter itself is server-rendered, so driver.get() has already returned the
+        final page. Only an interstitial changes after load, and that case is
+        handled by _wait_for_challenge_clear.
         """
         # Tweets win outright — never let a marker demote a page that has results.
         if self.nitter_driver.find_elements(By.CSS_SELECTOR, ".timeline-item"):
@@ -362,14 +395,18 @@ class TwitterService:
         return results
 
     def _search_tweets_via_nitter(self, keyword: Keyword, limit: int = 20) -> List[Dict]:
-        """Search Nitter instances for a keyword. One navigated URL = one throttled request."""
+        """Search Nitter instances for a keyword, stopping at the first usable page.
+
+        Blocked instances are skipped immediately rather than waited on, and the
+        list is walked at most once: if every instance refuses, the keyword is
+        given up on and retried on the next cycle instead of looping here.
+        """
         results: List[Dict] = []
         self._ensure_nitter_driver()
 
         wants_replies = ContentType.COMMENTS.value in (keyword.content_types or [])
         wants_posts = ContentType.BODY.value in (keyword.content_types or [])
         cutoff = timezone.now() - timedelta(hours=24)
-        cooldown_mins = max(1, NITTER_MIN_REQUEST_INTERVAL_SECS // 60)
 
         for inst in self.nitter_instances:
             if not self.is_monitoring:
@@ -381,20 +418,21 @@ class TwitterService:
 
             url = _build_search_url(inst, keyword.keyword)
             try:
-                self._nitter_get(url)
+                self._nitter_get(url, normalized)
                 if not self.is_monitoring:
                     break
 
                 status = self._classify_nitter_page()
                 if status == "challenge":
-                    # Sitting on the interstitial polling it is itself bot-like.
-                    # Leave immediately and come back after the standard interval.
-                    logger.warning("platform=twitter challenge on %s; backing off", inst)
-                    self._cooldown_instance(inst, minutes=cooldown_mins)
+                    status = self._wait_for_challenge_clear()
+
+                if status == "challenge":
+                    logger.warning("platform=twitter challenge on %s; next instance", inst)
+                    self._cooldown_instance(inst, minutes=5)
                     continue
                 if status == "rate_limited":
                     logger.warning("platform=twitter rate limited on %s", inst)
-                    self._cooldown_instance(inst, minutes=cooldown_mins * 3)
+                    self._cooldown_instance(inst, minutes=15)
                     continue
                 if status == "empty":
                     logger.debug("platform=twitter empty results on %s keyword='%s'", inst, keyword.keyword)
@@ -404,7 +442,7 @@ class TwitterService:
                     # A blank or unrecognised page is the server's doing, not a
                     # broken browser, so the driver is left alone.
                     logger.warning("platform=twitter unreadable page on %s", inst)
-                    self._cooldown_instance(inst, minutes=cooldown_mins)
+                    self._cooldown_instance(inst, minutes=5)
                     continue
 
                 results = self._parse_timeline_items(
