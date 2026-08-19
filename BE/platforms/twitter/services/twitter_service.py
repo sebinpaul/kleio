@@ -31,6 +31,10 @@ DEFAULT_NITTER_INSTANCES: List[str] = [
     "https://nitter.net",
     "https://xcancel.com",
     "https://nitter.tiekoetter.com",
+    "https://nitter.catsarch.com/",
+    "https://nitter.kareem.one/",
+    "https://nitter.privacyredirect.com/",
+    "https://lightbrd.com/"
 ]
 
 # Hard floor between any Nitter navigations (including between keywords/instances).
