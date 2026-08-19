@@ -28,7 +28,7 @@ class RealtimeStreamMonitor:
     def start_stream_monitoring(self, keywords=None):
         """Start monitoring Reddit streams for keyword mentions"""
         self.monitoring_start_time = int(timezone.now().replace(tzinfo=dt_timezone.utc).timestamp())
-        logger.info(f"Started Reddit monitoring at timestamp: {self.monitoring_start_time}")
+        logger.debug("platform=reddit monitoring start_time=%s", self.monitoring_start_time)
         try:
             self.stop_monitoring = False
             
@@ -45,7 +45,7 @@ class RealtimeStreamMonitor:
                 keywords = Keyword.objects.filter(is_active=True)
             
             if not keywords:
-                logger.info("No active keywords to monitor")
+                logger.debug("platform=reddit no active keywords to monitor")
                 return
             
             # Group keywords by subreddit
@@ -63,16 +63,18 @@ class RealtimeStreamMonitor:
                 )
                 thread.start()
                 self.monitoring_threads.append(thread)
-                logger.info(f"Started monitoring r/{subreddit_name} with {len(keywords_list)} keywords")
+                logger.debug("platform=reddit monitoring r/%s keywords=%s", subreddit_name, len(keywords_list))
             
-            logger.info(f"Started monitoring {len(subreddit_keywords)} subreddits with {len(keywords)} total keywords")
+            logger.info(
+                "platform=reddit monitoring started subreddits=%s keywords=%s",
+                len(subreddit_keywords), len(keywords),
+            )
             
         except Exception as e:
-            logger.error(f"Error starting stream monitoring: {e}")
+            logger.error("platform=reddit monitoring start failed: %s", e)
     
     def stop_stream_monitoring(self):
         """Stop all monitoring threads"""
-        logger.info("Stopping stream monitoring...")
         self.stop_monitoring = True
         
         # Wait for threads to finish
@@ -80,7 +82,7 @@ class RealtimeStreamMonitor:
             thread.join(timeout=5)
         
         self.monitoring_threads.clear()
-        logger.info("Stream monitoring stopped")
+        logger.info("platform=reddit monitoring stopped")
     
     def _group_keywords_by_subreddit(self, keywords):
         """Group keywords by subreddit for efficient monitoring"""
@@ -120,9 +122,9 @@ class RealtimeStreamMonitor:
 
             self.monitoring_threads.extend([submissions_thread, comments_thread])
 
-            logger.info(f"Started monitoring r/{subreddit_name} with {len(keywords)} keywords")            
+            logger.debug("platform=reddit streams started r/%s keywords=%s", subreddit_name, len(keywords))
         except Exception as e:
-            logger.error(f"Error monitoring r/{subreddit_name}: {e}")
+            logger.error("platform=reddit monitor r/%s failed: %s", subreddit_name, e)
     
     def _monitor_submissions_stream(self, subreddit, keywords):
         """Monitor submissions stream for mentions (reconnects after errors / rate limits)."""
@@ -134,8 +136,8 @@ class RealtimeStreamMonitor:
                 if not self.reddit:
                     self._rotate_reddit_client()
                 live_subreddit = self.reddit.subreddit(subreddit.display_name)
-                logger.info(
-                    f"Starting submissions stream monitoring for r/{live_subreddit.display_name} (skip_existing=True)"
+                logger.debug(
+                    "platform=reddit submissions stream r/%s skip_existing=True", live_subreddit.display_name
                 )
 
                 for submission in live_subreddit.stream.submissions(skip_existing=True):
@@ -145,12 +147,12 @@ class RealtimeStreamMonitor:
                     backoff_secs = 30  # reset after successful traffic
 
             except Exception as e:
-                logger.error(f"Error in submissions stream for r/{subreddit.display_name}: {e}")
+                logger.error("platform=reddit submissions stream r/%s failed: %s", subreddit.display_name, e)
                 self._rotate_reddit_client()
                 if self.stop_monitoring:
                     break
                 logger.warning(
-                    f"Submissions stream r/{subreddit.display_name} will reconnect in {backoff_secs}s"
+                    "platform=reddit submissions stream r/%s reconnect in %ss", subreddit.display_name, backoff_secs
                 )
                 time.sleep(backoff_secs)
                 backoff_secs = min(backoff_secs * 2, max_backoff_secs)
@@ -164,8 +166,8 @@ class RealtimeStreamMonitor:
                 if not self.reddit:
                     self._rotate_reddit_client()
                 live_subreddit = self.reddit.subreddit(subreddit.display_name)
-                logger.info(
-                    f"Starting comments stream monitoring for r/{live_subreddit.display_name} (skip_existing=True)"
+                logger.debug(
+                    "platform=reddit comments stream r/%s skip_existing=True", live_subreddit.display_name
                 )
 
                 for comment in live_subreddit.stream.comments(skip_existing=True):
@@ -175,12 +177,12 @@ class RealtimeStreamMonitor:
                     backoff_secs = 30
 
             except Exception as e:
-                logger.error(f"Error in comments stream for r/{subreddit.display_name}: {e}")
+                logger.error("platform=reddit comments stream r/%s failed: %s", subreddit.display_name, e)
                 self._rotate_reddit_client()
                 if self.stop_monitoring:
                     break
                 logger.warning(
-                    f"Comments stream r/{subreddit.display_name} will reconnect in {backoff_secs}s"
+                    "platform=reddit comments stream r/%s reconnect in %ss", subreddit.display_name, backoff_secs
                 )
                 time.sleep(backoff_secs)
                 backoff_secs = min(backoff_secs * 2, max_backoff_secs)
@@ -218,29 +220,25 @@ class RealtimeStreamMonitor:
                         if mention:
                             try:
                                 mention.save()
-                                logger.info(f"🎯 New mention found! Keyword: '{keyword.keyword}' in r/{submission.subreddit.display_name}")
-                                logger.info(f"   Content Type: {content_type}")
-                                logger.info(f"   Title: {submission.title[:50]}...")
-                                logger.info(f"   URL: https://reddit.com{submission.permalink}")
+                                logger.info(
+                                    "platform=reddit mention created keyword='%s' type=%s subreddit=r/%s",
+                                    keyword.keyword, content_type, submission.subreddit.display_name,
+                                )
                                 
                                 # Send email notification
                                 self._send_email_notification(mention, keyword)
                                 
                             except Exception as e:
-                                logger.error(f"Error saving mention: {e}")
+                                logger.error("platform=reddit mention save failed: %s", e)
         
         except Exception as e:
-            logger.error(f"Error checking submission for keywords: {e}")
+            logger.error("platform=reddit submission check failed: %s", e)
     
     def _check_comment_for_keywords(self, comment, keywords):
         """Check if a comment matches any keywords"""
         try:
             # Check comments content type
             content = comment.body
-            
-            # Debug logging
-            logger.debug(f"Checking comment: {content[:100]}... in r/{comment.subreddit.display_name}")
-            logger.debug(f"Keywords to check: {[kw.keyword for kw in keywords]}")
             
             for keyword in keywords:
                 context = MatchContext(
@@ -252,38 +250,34 @@ class RealtimeStreamMonitor:
                 )
                 
                 if match_result:
-                    logger.info(f"🎯 Match found! Keyword: '{keyword.keyword}' in comment")
                     mention = self._create_mention_from_comment(keyword, comment, match_result)
                     if mention:
                         try:
                             mention.save()
-                            logger.info(f"🎯 New mention found! Keyword: '{keyword.keyword}' in comment on r/{comment.subreddit.display_name}")
-                            logger.info(f"   Comment: {comment.body[:50]}...")
-                            logger.info(f"   URL: https://reddit.com{comment.permalink}")
+                            logger.info(
+                                "platform=reddit mention created keyword='%s' type=comment subreddit=r/%s",
+                                keyword.keyword, comment.subreddit.display_name,
+                            )
                             
                             # Send email notification
                             self._send_email_notification(mention, keyword)
                             
                         except Exception as e:
-                            logger.error(f"Error saving mention: {e}")
-                else:
-                    logger.debug(f"No match for keyword '{keyword.keyword}' in comment")
+                            logger.error("platform=reddit mention save failed: %s", e)
         
         except Exception as e:
-            logger.error(f"Error checking comment for keywords: {e}")
+            logger.error("platform=reddit comment check failed: %s", e)
     
     def _send_email_notification(self, mention, keyword):
         """Send email notification for a new mention"""
         try:
             # Send email notification using the service
             success = email_notification_service.send_mention_notification(mention)
-            if success:
-                logger.info(f"Email notification sent for mention {mention.id}")
-            else:
-                logger.error(f"Failed to send email notification for mention {mention.id}")
+            if not success:
+                logger.error("platform=reddit email failed mention=%s", mention.id)
                 
         except Exception as e:
-            logger.error(f"Error sending email notification: {e}")
+            logger.error("platform=reddit email notification failed: %s", e)
     
 
     
@@ -322,7 +316,7 @@ class RealtimeStreamMonitor:
             return mention
             
         except Exception as e:
-            logger.error(f"Error creating mention from submission: {str(e)}")
+            logger.error("platform=reddit mention build failed (submission): %s", e)
             return None
     
     def _create_mention_from_comment(self, keyword, comment, match_result: MatchResult):
@@ -360,7 +354,7 @@ class RealtimeStreamMonitor:
             return mention
             
         except Exception as e:
-            logger.error(f"Error creating mention from comment: {str(e)}")
+            logger.error("platform=reddit mention build failed (comment): %s", e)
             return None
     
     def _map_content_type_to_mention_type(self, content_type: str) -> str:
@@ -380,7 +374,7 @@ class RealtimeStreamMonitor:
                 user_agent=os.environ.get('REDDIT_USER_AGENT', 'KleioBot/1.0'),
             )
         except Exception as e:
-            logger.warning(f"Failed to rotate Reddit client: {e}")
+            logger.warning("platform=reddit client rotation failed: %s", e)
 
 # Global instance
 realtime_stream_monitor = RealtimeStreamMonitor() 

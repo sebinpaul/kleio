@@ -104,6 +104,7 @@ class TwitterService:
         self.last_check_time = None
         self.tweet_cache = {}  # Cache to avoid duplicates
         self.matching_engine = GenericMatchingEngine()
+        self._cycle_mentions = 0
         self.check_interval = 120  # Check every 2 minutes
         # Nitter configuration
         self.nitter_driver = None
@@ -115,12 +116,12 @@ class TwitterService:
     def start_monitoring(self):
         """Initialize monitoring start time"""
         self.last_check_time = timezone.now()
-        logger.info("Twitter monitoring initialized")
+        logger.debug("platform=twitter monitoring initialized")
     
     def start_stream_monitoring(self, keywords: List[Keyword]):
         """Start real-time Twitter monitoring"""
         if self.is_monitoring:
-            logger.info("Twitter monitoring already running")
+            logger.debug("platform=twitter monitoring already running")
             return
             
         self.is_monitoring = True
@@ -130,7 +131,7 @@ class TwitterService:
             daemon=True
         )
         self.monitoring_thread.start()
-        logger.info(f"Started Twitter streaming for {len(keywords)} keywords")
+        logger.info("platform=twitter monitoring started keywords=%s", len(keywords))
     
     def stop_stream_monitoring(self):
         """Stop Twitter monitoring"""
@@ -143,7 +144,7 @@ class TwitterService:
                 self.nitter_driver = None
         except Exception:
             pass
-        logger.info("Stopped Twitter streaming")
+        logger.info("platform=twitter monitoring stopped")
     
     def _run_monitoring_loop(self, keywords: List[Keyword]):
         """Main monitoring loop"""
@@ -152,7 +153,7 @@ class TwitterService:
                 self._check_for_new_tweets(keywords)
                 time.sleep(self.check_interval)
             except Exception as e:
-                logger.error(f"Error in Twitter monitoring loop: {e}")
+                logger.error("platform=twitter monitoring loop failed: %s", e)
                 time.sleep(60)  # Wait longer on error
             # small pause between cycles to avoid hammering instances
             time.sleep(1)
@@ -160,26 +161,34 @@ class TwitterService:
     def _check_for_new_tweets(self, keywords: List[Keyword]):
         """Check for new tweets matching keywords"""
         try:
-            current_time = timezone.now()
+            started = time.time()
+            self._cycle_mentions = 0
+            tweets_seen = 0
             
             for keyword in keywords:
                 if not self._should_monitor_keyword(keyword):
                     continue
                 
                 # Nitter-only search
-                logger.debug(f"Searching (Nitter) for keyword: {keyword.keyword}")
+                logger.debug("platform=twitter searching keyword='%s'", keyword.keyword)
                 try:
                     tweets = self._search_tweets_via_nitter(keyword, limit=20)
                 except Exception as e:
-                    logger.error(f"Nitter search error: {e}")
+                    logger.error("platform=twitter search failed keyword='%s': %s", keyword.keyword, e)
                     tweets = []
                 
                 for tweet in tweets:
                     if self._is_new_tweet(tweet, keyword):
+                        tweets_seen += 1
                         self._process_tweet_for_keyword(tweet, keyword)
+            
+            logger.info(
+                "platform=twitter poll completed tweets=%s mentions=%s duration_ms=%.0f",
+                tweets_seen, self._cycle_mentions, (time.time() - started) * 1000,
+            )
                         
         except Exception as e:
-            logger.error(f"Error checking for new tweets: {e}")
+            logger.error("platform=twitter poll failed: %s", e)
     
     # snscrape-based search removed
 
@@ -196,7 +205,7 @@ class TwitterService:
                     pass
             self.nitter_driver = _create_driver(headless=self.headless, user_data_dir=None)
         except Exception as e:
-            logger.warning(f"Failed to restart Twitter driver: {e}")
+            logger.warning("platform=twitter driver restart failed: %s", e)
 
     def _cooldown_instance(self, instance: str, minutes: int = 2) -> None:
         try:
@@ -233,14 +242,14 @@ class TwitterService:
                         time.sleep(random.uniform(1.0, 2.0))
                     except Exception:
                         pass
-                    logger.info(f"Fetching URL: {url}")
+                    logger.debug("platform=twitter fetching url=%s", url)
                     self.nitter_driver.get(url)
                     time.sleep(random.uniform(1.0, 2.0))
                     # Detect anti-bot page early
                     page_title = self.nitter_driver.title or ""
                     page_source = self.nitter_driver.page_source or ""
                     if ("Verifying your request" in page_title) or ("/check/" in page_source):
-                        logger.warning(f"Anti-bot page detected on {inst}; retrying before cooldown")
+                        logger.warning("platform=twitter anti-bot page on %s; retrying before cooldown", inst)
                         # Retry once after restarting the browser
                         if self._retry_instance_once(inst, url):
                             # Successful retry; proceed to parse items
@@ -310,18 +319,18 @@ class TwitterService:
                         })
                     if results:
                         return results[:limit]
-                except TimeoutException as e:
-                    logger.warning(f"Nitter instance timed out: {inst} (TimeoutException) on URL {url}")
+                except TimeoutException:
+                    logger.warning("platform=twitter instance timed out %s url=%s", inst, url)
                     self._cooldown_instance(inst, minutes=2)
                     self._restart_driver()
                     continue
                 except WebDriverException as e:
-                    logger.warning(f"Nitter instance WebDriver error: {inst} ({e.__class__.__name__}: {e}) on URL {url}")
+                    logger.warning("platform=twitter instance webdriver error %s (%s) url=%s", inst, e.__class__.__name__, url)
                     self._cooldown_instance(inst, minutes=2)
                     self._restart_driver()
                     continue
                 except Exception as e:
-                    logger.warning(f"Nitter instance failed: {inst} ({e}) on URL {url}")
+                    logger.warning("platform=twitter instance failed %s (%s) url=%s", inst, e, url)
                     self._cooldown_instance(inst, minutes=1)
                     continue
         # Fallback: if nothing found and cooldowns may have skipped all instances, try a second pass ignoring cooldowns
@@ -330,7 +339,7 @@ class TwitterService:
                 url = _build_search_url(inst, keyword.keyword)
                 try:
                     self._restart_driver()
-                    logger.info(f"Retrying (ignore cooldown) URL: {url}")
+                    logger.debug("platform=twitter retrying (ignore cooldown) url=%s", url)
                     self.nitter_driver.get(url)
                     time.sleep(random.uniform(1.0, 2.0))
                     WebDriverWait(self.nitter_driver, 20).until(
@@ -448,7 +457,7 @@ class TwitterService:
             if ContentType.BODY.value in content_types_to_check:
                 self._check_tweet_content(tweet, keyword, ContentType.BODY.value)
         except Exception as e:
-            logger.error(f"Error processing tweet {tweet.get('id')}: {e}")
+            logger.error("platform=twitter processing id=%s failed: %s", tweet.get('id'), e)
     
     def _check_tweet_content(self, tweet: Dict, keyword: Keyword, content_type: str):
         """Check if tweet content matches keyword"""
@@ -466,8 +475,7 @@ class TwitterService:
             # Create mention
             mention = self._create_mention_from_tweet(tweet, keyword, match_result, content_type)
             if mention:
-                self._save_mention(mention, keyword)
-                logger.info(f"🎯 New Twitter mention! Keyword: '{keyword.keyword}' - {content[:50]}...")
+                self._save_mention(mention, keyword, content_type)
     
     def _create_mention_from_tweet(self, tweet: Dict, keyword: Keyword, match_result, content_type: str) -> Optional[Mention]:
         """Create a Mention object from a Twitter tweet"""
@@ -508,30 +516,32 @@ class TwitterService:
             return mention
             
         except Exception as e:
-            logger.error(f"Error creating mention from tweet: {str(e)}")
+            logger.error("platform=twitter mention build failed: %s", e)
             return None
     
-    def _save_mention(self, mention: Mention, keyword: Keyword):
+    def _save_mention(self, mention: Mention, keyword: Keyword, content_type: str = ""):
         """Save mention and send notification"""
         try:
             mention.save()
-            logger.info(f"💾 Saved Twitter mention: {mention.keyword_id} - {mention.title[:50]}...")
+            self._cycle_mentions += 1
+            logger.info(
+                "platform=twitter mention created keyword='%s' type=%s id=%s",
+                keyword.keyword, content_type or mention.content_type, mention.id,
+            )
             
             # Send email notification
             success = email_notification_service.send_mention_notification(mention)
-            if success:
-                logger.info(f"📧 Email notification sent for mention {mention.id}")
-            else:
-                logger.error(f"Failed to send email notification for mention {mention.id}")
+            if not success:
+                logger.error("platform=twitter email failed mention=%s", mention.id)
                 
         except Exception as e:
-            logger.error(f"Error saving mention: {e}")
+            logger.error("platform=twitter mention save failed: %s", e)
     
     def reset_monitoring(self):
         """Reset monitoring state (useful for testing)"""
         self.last_check_time = None
         self.tweet_cache.clear()
-        logger.info("Reset Twitter monitoring - will start fresh on next run")
+        logger.debug("platform=twitter monitoring reset")
 
 # Global instance
 twitter_service = TwitterService() 

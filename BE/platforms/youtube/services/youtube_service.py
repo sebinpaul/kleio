@@ -43,6 +43,7 @@ class YouTubeService:
         self.is_monitoring = False
         self.monitor_thread = None
         self.matching_engine = GenericMatchingEngine()
+        self._cycle_mentions = 0
         self.check_interval = 300
         self.instances = list(DEFAULT_INVIDIOUS_INSTANCES)
         self.instance_cooldowns: Dict[str, float] = {}
@@ -93,7 +94,7 @@ class YouTubeService:
 
     def start_stream_monitoring(self, keywords: List[Keyword]):
         if self.is_monitoring:
-            logger.info("YouTube monitoring already running")
+            logger.debug("platform=youtube monitoring already running")
             return
         self.is_monitoring = True
         # Reset start marker and per-keyword heads
@@ -106,7 +107,7 @@ class YouTubeService:
             daemon=True,
         )
         self.monitor_thread.start()
-        logger.info(f"Started YouTube monitoring for {len(keywords)} keywords")
+        logger.info("platform=youtube monitoring started keywords=%s", len(keywords))
 
     def stop_stream_monitoring(self):
         self.is_monitoring = False
@@ -118,7 +119,7 @@ class YouTubeService:
                 self.driver = None
         except Exception:
             pass
-        logger.info("Stopped YouTube monitoring")
+        logger.info("platform=youtube monitoring stopped")
 
     def _run_monitoring_loop(self, keywords: List[Keyword]):
         while self.is_monitoring:
@@ -126,10 +127,13 @@ class YouTubeService:
                 self._check_for_new_videos(keywords)
                 time.sleep(self.check_interval)
             except Exception as e:
-                logger.error(f"YouTube monitor loop error: {e}")
+                logger.error("platform=youtube monitoring loop failed: %s", e)
                 time.sleep(60)
 
     def _check_for_new_videos(self, keywords: List[Keyword]):
+        started = time.time()
+        self._cycle_mentions = 0
+        videos_seen = 0
         for keyword in keywords:
             if keyword.platform not in [Platform.YOUTUBE.value, Platform.ALL.value]:
                 continue
@@ -175,12 +179,18 @@ class YouTubeService:
                     if not detail:
                         continue
                     self._process_new_video(keyword, vid, detail)
+                    videos_seen += 1
                     self.seen_cache[cache_key] = time.time()
                 # Update head marker after processing
                 self.last_seen_top_id[keyword_key] = ordered_ids[0]
                 self._set_cursor(keyword.user_id, keyword_key, ordered_ids[0])
             except Exception as e:
-                logger.error(f"YouTube keyword check failed for '{keyword.keyword}': {e}")
+                logger.error("platform=youtube search failed keyword='%s': %s", keyword.keyword, e)
+
+        logger.info(
+            "platform=youtube poll completed videos=%s mentions=%s duration_ms=%.0f",
+            videos_seen, self._cycle_mentions, (time.time() - started) * 1000,
+        )
 
     def _process_new_video(self, keyword: Keyword, video_id: str, detail: Dict) -> None:
         title = detail.get("title") or ""
@@ -332,15 +342,14 @@ class YouTubeService:
         mention.platform_item_id = video_id
         try:
             mention.save()
+            self._cycle_mentions += 1
             email_notification_service.send_mention_notification(mention)
             logger.info(
-                "YouTube mention saved (%s): %s - %s...",
-                mention_content_type,
-                video_id,
-                content[:50],
+                "platform=youtube mention created keyword='%s' type=%s id=%s",
+                keyword.keyword, mention_content_type, mention.id,
             )
         except Exception as e:
-            logger.error("Failed to save YouTube mention: %s", e)
+            logger.error("platform=youtube mention save failed: %s", e)
 
     def _fetch_video_comments(self, video_id: str) -> List[Dict]:
         now = time.time()
@@ -565,7 +574,7 @@ class YouTubeService:
                     pass
             self.driver = self._create_driver(headless=self.headless)
         except Exception as e:
-            logger.warning(f"Failed to restart YouTube driver: {e}")
+            logger.warning("platform=youtube driver restart failed: %s", e)
 
     def _cooldown_instance(self, instance: str, minutes: int = 2) -> None:
         try:
