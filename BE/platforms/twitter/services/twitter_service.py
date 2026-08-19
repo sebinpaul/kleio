@@ -103,7 +103,7 @@ def _build_search_url(
     instance: str,
     query: str,
 ) -> str:
-    """Build a Nitter search URL. Recency is enforced in-process (24h cutoff)."""
+    """Build a Nitter search URL. Recency is enforced in-process by the watermark."""
     base = _normalize_instance_url(instance)
     params = [
         "f=tweets",
@@ -124,6 +124,15 @@ def _parse_nitter_date(item) -> Optional[datetime]:
         return parsed.replace(tzinfo=datetime_timezone.utc)
     except (ValueError, WebDriverException):
         return None
+
+
+def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """Mongo returns naive UTC datetimes; Nitter dates are already aware."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=datetime_timezone.utc)
+    return value.astimezone(datetime_timezone.utc)
 
 
 def _page_text_blob(driver) -> str:
@@ -156,6 +165,8 @@ class TwitterService:
         self.nitter_instances = list(DEFAULT_NITTER_INSTANCES)
         self.instance_cooldowns: Dict[str, float] = {}
         self._instance_last_request_at: Dict[str, float] = {}
+        # Newest tweet already handled per keyword; nothing older ever alerts.
+        self._keyword_watermarks: Dict[str, datetime] = {}
         # Headless default
         self.headless = True
         
@@ -353,7 +364,8 @@ class TwitterService:
             text = safe_text(".tweet-content")
             username = safe_text(".username").lstrip("@")
             tweet_date = _parse_nitter_date(el)
-            if tweet_date is None or tweet_date < cutoff:
+            # Exclusive: the watermark tweet itself has already been handled.
+            if tweet_date is None or tweet_date <= cutoff:
                 continue
             is_reply = bool(el.find_elements(By.CSS_SELECTOR, ".replying-to"))
             if (is_reply and not wants_replies) or (not is_reply and not wants_posts):
@@ -394,19 +406,49 @@ class TwitterService:
             })
         return results
 
+    def _keyword_watermark(self, keyword: Keyword) -> Optional[datetime]:
+        """Newest tweet already handled for this keyword, or None on first sight.
+
+        Falls back to the stored mentions so a worker restart does not replay
+        everything inside the lookback window.
+        """
+        kid = str(keyword.id)
+        if kid in self._keyword_watermarks:
+            return self._keyword_watermarks[kid]
+        try:
+            latest = (
+                Mention.objects.filter(keyword_id=kid, platform=Platform.TWITTER.value)
+                .order_by("-mention_date")
+                .first()
+            )
+        except Exception as e:
+            logger.warning("platform=twitter watermark lookup failed keyword='%s': %s", keyword.keyword, e)
+            return None
+        stored = _as_utc(latest.mention_date) if latest else None
+        if stored:
+            self._keyword_watermarks[kid] = stored
+        return stored
+
     def _search_tweets_via_nitter(self, keyword: Keyword, limit: int = 20) -> List[Dict]:
         """Search Nitter instances for a keyword, stopping at the first usable page.
 
         Blocked instances are skipped immediately rather than waited on, and the
         list is walked at most once: if every instance refuses, the keyword is
         given up on and retried on the next cycle instead of looping here.
+
+        Only tweets newer than the keyword's watermark are returned, so a slow
+        cycle never turns hours-old tweets into fresh alerts.
         """
         results: List[Dict] = []
         self._ensure_nitter_driver()
 
         wants_replies = ContentType.COMMENTS.value in (keyword.content_types or [])
         wants_posts = ContentType.BODY.value in (keyword.content_types or [])
-        cutoff = timezone.now() - timedelta(hours=24)
+        watermark = self._keyword_watermark(keyword)
+        # With no watermark there is nothing to call "new" yet, so this first pass
+        # only reads far enough back to place the baseline. It alerts on nothing.
+        cutoff = watermark or (timezone.now() - timedelta(hours=24))
+        searched_ok = False
 
         for inst in self.nitter_instances:
             if not self.is_monitoring:
@@ -437,6 +479,7 @@ class TwitterService:
                 if status == "empty":
                     logger.debug("platform=twitter empty results on %s keyword='%s'", inst, keyword.keyword)
                     # Valid empty page — no cooldown, try next instance.
+                    searched_ok = True
                     continue
                 if status == "unknown":
                     # A blank or unrecognised page is the server's doing, not a
@@ -445,6 +488,7 @@ class TwitterService:
                     self._cooldown_instance(inst, minutes=5)
                     continue
 
+                searched_ok = True
                 results = self._parse_timeline_items(
                     inst,
                     wants_replies=wants_replies,
@@ -453,7 +497,7 @@ class TwitterService:
                     limit=limit,
                 )
                 if results:
-                    return results[:limit]
+                    break
                 logger.debug(
                     "platform=twitter timeline loaded but no matching tweets on %s keyword='%s'",
                     inst, keyword.keyword,
@@ -476,7 +520,30 @@ class TwitterService:
                 self._cooldown_instance(inst, minutes=1)
                 continue
 
-        return results[:limit]
+        if not searched_ok:
+            # Every instance refused, so we learned nothing — leave the watermark
+            # alone or we would skip whatever was posted during the outage.
+            logger.warning("platform=twitter no usable instance keyword='%s'", keyword.keyword)
+            return []
+
+        results.sort(key=lambda t: t["date"], reverse=True)
+
+        if watermark is None:
+            # Baseline at "now" rather than at the newest tweet on the page: an
+            # instance that is hours behind would otherwise reveal that backlog
+            # one cycle later, and every item in it would look new.
+            baseline = timezone.now()
+            self._keyword_watermarks[str(keyword.id)] = baseline
+            logger.info(
+                "platform=twitter baseline set keyword='%s' at=%s skipped=%s",
+                keyword.keyword, baseline.isoformat(), len(results),
+            )
+            return []
+
+        results = results[:limit]
+        if results:
+            self._keyword_watermarks[str(keyword.id)] = results[0]["date"]
+        return results
     
     def _is_new_tweet(self, tweet: Dict, keyword: Keyword) -> bool:
         """Check if tweet is new and should be processed"""
@@ -609,6 +676,7 @@ class TwitterService:
         """Reset monitoring state (useful for testing)"""
         self.last_check_time = None
         self.tweet_cache.clear()
+        self._keyword_watermarks.clear()
         logger.debug("platform=twitter monitoring reset")
 
 # Global instance

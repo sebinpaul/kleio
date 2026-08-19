@@ -1,8 +1,9 @@
+import html
 import os
 import logging
 import resend
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
 from django.contrib.auth.models import User
 from ..models import Mention, Keyword, UserProfile
 from ..enums import Platform, MentionContentType
@@ -10,19 +11,66 @@ from .clerk_service import clerk_user_service
 
 logger = logging.getLogger(__name__)
 
+# Inline styles only: several mail clients drop <style> blocks entirely.
+_PAGE_BG = "#f4f5f7"
+_BORDER = "#e4e7ec"
+_HEADING = "#101828"
+_BODY = "#344054"
+_MUTED = "#667085"
+_ACCENT = "#4f46e5"
+_FONT = (
+    "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif"
+)
+
+
 class EmailNotificationService:
     """Service for sending email notifications for mentions across all platforms"""
     
     def __init__(self):
+        # Assigned before the API-key guard: the rest of the class reads these
+        # even when sending is disabled.
+        self.app_name = "Kleio"
+        self.from_email = os.environ.get("RESEND_FROM_EMAIL")
+        self.app_url = (
+            os.environ.get("APP_URL")
+            or os.environ.get("FRONTEND_URL")
+            or "https://kleio.fyi"
+        ).rstrip("/")
+
         self.api_key = os.environ.get("RESEND_API_KEY")
         if not self.api_key:
             logger.warning("RESEND_API_KEY not found in environment variables")
             return
-        
+
         resend.api_key = self.api_key
-        self.from_email = os.environ.get("RESEND_FROM_EMAIL")
-        self.app_name = "Kleio"
-        self.app_url = os.environ.get("APP_URL", "https://kleio.app")
+
+    def _from_address(self) -> str:
+        """Without a display name, clients show the bare mailbox ("alerts")."""
+        sender = (self.from_email or "").strip()
+        if not sender:
+            return f"{self.app_name} Alerts <alerts@kleio.fyi>"
+        if "<" in sender:
+            return sender
+        return f"{self.app_name} Alerts <{sender}>"
+
+    @staticmethod
+    def _esc(value: Optional[str]) -> str:
+        """Mention content is untrusted and is interpolated straight into HTML."""
+        return html.escape(value or "", quote=True)
+
+    @staticmethod
+    def _truncate(value: Optional[str], limit: int) -> str:
+        text = (value or "").strip()
+        return text if len(text) <= limit else f"{text[:limit].rstrip()}…"
+
+    @staticmethod
+    def _format_timestamp(value: Optional[datetime]) -> str:
+        """Always label the zone: timestamps are stored in UTC, readers are not."""
+        if not value:
+            return "Unknown date"
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=dt_timezone.utc)
+        return value.astimezone(dt_timezone.utc).strftime("%d %b %Y, %H:%M UTC")
     
     def get_user_email(self, user_id: str) -> Optional[str]:
         """Get user email from Clerk API with fallback to Django User model"""
@@ -93,15 +141,12 @@ class EmailNotificationService:
                 return True
             
             # Prepare email content
-            subject = self._generate_subject(mention, keyword)
-            html_content = self._generate_html_content(mention, keyword)
-            print("from : ", self.from_email)
-            # Send email
             params = {
-                "from": self.from_email,
+                "from": self._from_address(),
                 "to": [user_email],
-                "subject": subject,
-                "html": html_content,
+                "subject": self._generate_subject(mention, keyword),
+                "html": self._generate_html_content(mention, keyword),
+                "text": self._plain_text(mention, keyword),
             }
             
             email_response = resend.Emails.send(params)
@@ -150,15 +195,11 @@ class EmailNotificationService:
                 mentions_by_keyword[keyword_id].append(mention)
             
             # Prepare email content
-            subject = f"📧 {self.app_name} - {len(mentions)} new mentions found"
-            html_content = self._generate_digest_html_content(mentions_by_keyword)
-            
-            # Send email
             params = {
-                "from": self.from_email,
+                "from": self._from_address(),
                 "to": [user_email],
-                "subject": subject,
-                "html": html_content,
+                "subject": self._digest_subject(mentions_by_keyword),
+                "html": self._generate_digest_html_content(mentions_by_keyword),
             }
             
             email_response = resend.Emails.send(params)
@@ -179,158 +220,175 @@ class EmailNotificationService:
     def _generate_subject(self, mention: Mention, keyword: Keyword) -> str:
         """Generate email subject line"""
         platform_name = self._get_platform_display_name(mention.platform)
+        return f"New {keyword.keyword} mention on {platform_name}"
+
+    def _layout(self, preheader: str, inner_html: str) -> str:
+        """Wrap content in the shared shell. Tables, for Outlook's sake."""
+        return f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body style="margin:0;padding:0;background:{_PAGE_BG};">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">{self._esc(preheader)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:{_PAGE_BG};padding:32px 16px;">
+<tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+<tr><td style="padding:0 4px 16px;font-family:{_FONT};font-size:14px;font-weight:600;color:{_MUTED};letter-spacing:.02em;">
+{self.app_name}
+</td></tr>
+<tr><td style="background:#ffffff;border:1px solid {_BORDER};border-radius:12px;padding:28px;">
+{inner_html}
+</td></tr>
+<tr><td style="padding:20px 4px 0;font-family:{_FONT};font-size:12px;line-height:1.6;color:{_MUTED};">
+<a href="{self.app_url}/dashboard" style="color:{_MUTED};">Manage keywords</a>
+&nbsp;·&nbsp;
+<a href="{self.app_url}/dashboard/settings" style="color:{_MUTED};">Notification settings</a>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+    def _mention_card(self, mention: Mention, keyword: Keyword) -> str:
+        """One mention, rendered as a quoted block with its metadata."""
+        platform_name = self._get_platform_display_name(mention.platform)
         content_type = self._get_content_type_display_name(mention.content_type)
-        
-        return f"🎯 New mention of '{keyword.keyword}' on {platform_name} ({content_type})"
+        author = self._esc(mention.author) or "unknown"
+        when = self._format_timestamp(mention.mention_date)
+        body = self._esc(self._truncate(mention.content, 400)) or "<em>No text content</em>"
+        title = self._esc(self._truncate(mention.title, 120))
+
+        # Twitter titles are synthesised as "Tweet by @handle", which just repeats
+        # the byline above; only show a title that carries its own information.
+        title_row = ""
+        if title and (mention.author or "").lower() not in title.lower():
+            title_row = (
+                f'<div style="font-family:{_FONT};font-size:14px;font-weight:600;'
+                f'color:{_HEADING};padding-bottom:6px;">{title}</div>'
+            )
+
+        return f"""
+<div style="border:1px solid {_BORDER};border-radius:10px;padding:18px;">
+  <div style="font-family:{_FONT};font-size:13px;color:{_MUTED};padding-bottom:12px;">
+    <strong style="color:{_BODY};">{author}</strong>
+    &nbsp;·&nbsp;{platform_name}
+    &nbsp;·&nbsp;{content_type}
+  </div>
+  {title_row}
+  <div style="font-family:{_FONT};font-size:15px;line-height:1.6;color:{_BODY};
+              border-left:3px solid {_BORDER};padding:2px 0 2px 14px;">
+    {body}
+  </div>
+  <div style="font-family:{_FONT};font-size:12px;color:{_MUTED};padding-top:14px;">
+    {when}
+  </div>
+</div>"""
+
+    def _plain_text(self, mention: Mention, keyword: Keyword) -> str:
+        """Plain-text alternative — meaningfully improves deliverability."""
+        platform_name = self._get_platform_display_name(mention.platform)
+        return "\n".join([
+            f'New mention of "{keyword.keyword}" on {platform_name}',
+            "",
+            f"Author:  {mention.author or 'unknown'}",
+            f"When:    {self._format_timestamp(mention.mention_date)}",
+            f"Type:    {self._get_content_type_display_name(mention.content_type)}",
+            "",
+            self._truncate(mention.content, 400),
+            "",
+            f"View original: {mention.source_url}",
+            f"Manage keywords: {self.app_url}/dashboard",
+        ])
     
     def _generate_html_content(self, mention: Mention, keyword: Keyword) -> str:
         """Generate HTML email content for a single mention"""
         platform_name = self._get_platform_display_name(mention.platform)
-        content_type = self._get_content_type_display_name(mention.content_type)
-        mention_date = mention.mention_date.strftime("%B %d, %Y at %I:%M %p")
-        
-        # Truncate content for email
-        content_preview = mention.content[:200] + "..." if len(mention.content) > 200 else mention.content
-        title_preview = mention.title[:100] + "..." if len(mention.title) > 100 else mention.title
-        
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>New Mention Found</title>
-            <style>
-                body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }}
-                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
-                .content {{ background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }}
-                .keyword {{ background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #2196f3; }}
-                .mention-card {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-                .platform-badge {{ display: inline-block; background: #ff6b6b; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }}
-                .content-type-badge {{ display: inline-block; background: #4ecdc4; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-left: 8px; }}
-                .btn {{ display: inline-block; background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; }}
-                .footer {{ text-align: center; margin-top: 30px; color: #666; font-size: 14px; }}
-                .meta {{ color: #666; font-size: 14px; margin: 10px 0; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>🎯 New Mention Found!</h1>
-                    <p>Your keyword was mentioned on {platform_name}</p>
-                </div>
-                
-                <div class="content">
-                    <div class="keyword">
-                        <strong>Keyword:</strong> {keyword.keyword}
-                    </div>
-                    
-                    <div class="mention-card">
-                        <div class="meta">
-                            <span class="platform-badge">{platform_name}</span>
-                            <span class="content-type-badge">{content_type}</span>
-                            <br>
-                            <strong>Author:</strong> {mention.author}
-                            <br>
-                            <strong>Date:</strong> {mention_date}
-                        </div>
-                        
-                        <h3>{title_preview}</h3>
-                        <p>{content_preview}</p>
-                        
-                        <a href="{mention.source_url}" class="btn" target="_blank">View Original</a>
-                    </div>
-                    
-                    <div class="footer">
-                        <p>You're receiving this because you're monitoring "{keyword.keyword}" on {platform_name}.</p>
-                        <p><a href="{self.app_url}/dashboard">Manage your keywords</a></p>
-                    </div>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        return html
+        keyword_text = self._esc(keyword.keyword)
+
+        inner = f"""
+<div style="font-family:{_FONT};font-size:19px;font-weight:600;color:{_HEADING};padding-bottom:4px;">
+  New mention on {platform_name}
+</div>
+<div style="font-family:{_FONT};font-size:14px;color:{_MUTED};padding-bottom:20px;">
+  Matched your keyword <strong style="color:{_BODY};">{keyword_text}</strong>
+</div>
+{self._mention_card(mention, keyword)}
+<div style="padding-top:22px;">
+  <a href="{self._esc(mention.source_url)}" target="_blank"
+     style="display:inline-block;background:{_ACCENT};color:#ffffff;font-family:{_FONT};
+            font-size:14px;font-weight:600;text-decoration:none;padding:11px 22px;border-radius:8px;">
+    View on {platform_name}
+  </a>
+</div>"""
+
+        preheader = f"{mention.author or 'Someone'} mentioned {keyword.keyword} on {platform_name}"
+        return self._layout(preheader, inner)
     
+    def _digest_subject(self, mentions_by_keyword: dict) -> str:
+        total = sum(len(m) for m in mentions_by_keyword.values())
+        noun = "mention" if total == 1 else "mentions"
+        if len(mentions_by_keyword) == 1:
+            keyword = Keyword.objects(id=next(iter(mentions_by_keyword))).first()
+            if keyword:
+                return f"{total} new {keyword.keyword} {noun}"
+        return f"{total} new {noun} across {len(mentions_by_keyword)} keywords"
+
     def _generate_digest_html_content(self, mentions_by_keyword: dict) -> str:
         """Generate HTML email content for digest with multiple mentions"""
         total_mentions = sum(len(mentions) for mentions in mentions_by_keyword.values())
-        
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Mention Digest</title>
-            <style>
-                body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }}
-                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
-                .content {{ background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }}
-                .keyword-section {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-                .mention-item {{ border-left: 3px solid #667eea; padding: 15px; margin: 10px 0; background: #f8f9fa; }}
-                .platform-badge {{ display: inline-block; background: #ff6b6b; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }}
-                .btn {{ display: inline-block; background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; }}
-                .footer {{ text-align: center; margin-top: 30px; color: #666; font-size: 14px; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>📧 Mention Digest</h1>
-                    <p>{total_mentions} new mentions found across your keywords</p>
-                </div>
-                
-                <div class="content">
-        """
-        
+        noun = "mention" if total_mentions == 1 else "mentions"
+
+        sections: List[str] = []
         for keyword_id, mentions in mentions_by_keyword.items():
             keyword = Keyword.objects(id=keyword_id).first()
             if not keyword:
                 continue
-            
-            html += f"""
-                    <div class="keyword-section">
-                        <h3>Keyword: {keyword.keyword}</h3>
-                        <p>{len(mentions)} mention(s) found</p>
-            """
-            
-            for mention in mentions:
-                platform_name = self._get_platform_display_name(mention.platform)
-                content_type = self._get_content_type_display_name(mention.content_type)
-                mention_date = mention.mention_date.strftime("%B %d, %Y at %I:%M %p")
-                content_preview = mention.content[:150] + "..." if len(mention.content) > 150 else mention.content
-                
-                html += f"""
-                        <div class="mention-item">
-                            <div>
-                                <span class="platform-badge">{platform_name}</span>
-                                <strong>{mention.author}</strong> • {mention_date}
-                            </div>
-                            <p><strong>{content_type}:</strong> {content_preview}</p>
-                            <a href="{mention.source_url}" target="_blank">View Original</a>
-                        </div>
-                """
-            
-            html += """
-                    </div>
-            """
-        
-        html += f"""
-                    <div class="footer">
-                        <a href="{self.app_url}/dashboard" class="btn">View All Mentions</a>
-                        <p><a href="{self.app_url}/dashboard">Manage your keywords</a></p>
-                    </div>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        return html
+
+            cards = "".join(
+                f"""
+<div style="padding-top:12px;">
+  {self._mention_card(mention, keyword)}
+  <div style="padding-top:8px;">
+    <a href="{self._esc(mention.source_url)}" target="_blank"
+       style="font-family:{_FONT};font-size:13px;font-weight:600;color:{_ACCENT};text-decoration:none;">
+      View original →
+    </a>
+  </div>
+</div>"""
+                for mention in mentions
+            )
+
+            sections.append(f"""
+<div style="padding-top:26px;">
+  <div style="font-family:{_FONT};font-size:15px;font-weight:600;color:{_HEADING};">
+    {self._esc(keyword.keyword)}
+  </div>
+  <div style="font-family:{_FONT};font-size:13px;color:{_MUTED};">
+    {len(mentions)} {'mention' if len(mentions) == 1 else 'mentions'}
+  </div>
+  {cards}
+</div>""")
+
+        inner = f"""
+<div style="font-family:{_FONT};font-size:19px;font-weight:600;color:{_HEADING};padding-bottom:4px;">
+  {total_mentions} new {noun}
+</div>
+<div style="font-family:{_FONT};font-size:14px;color:{_MUTED};">
+  Across {len(mentions_by_keyword)} of your keywords
+</div>
+{''.join(sections)}
+<div style="padding-top:26px;">
+  <a href="{self.app_url}/dashboard" target="_blank"
+     style="display:inline-block;background:{_ACCENT};color:#ffffff;font-family:{_FONT};
+            font-size:14px;font-weight:600;text-decoration:none;padding:11px 22px;border-radius:8px;">
+    View all mentions
+  </a>
+</div>"""
+
+        return self._layout(f"{total_mentions} new {noun} across your keywords", inner)
     
     def _get_platform_display_name(self, platform: str) -> str:
         """Get display name for platform"""
