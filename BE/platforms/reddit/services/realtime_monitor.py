@@ -15,11 +15,6 @@ from core.enums import Platform, ContentType, MentionContentType
 
 logger = logging.getLogger(__name__)
 
-# PRAW streams are request-based under the hood. pause_after=-1 yields None after
-# each listing response so we can enforce a fixed poll interval.
-REDDIT_POLL_INTERVAL_SECS = 60
-
-
 class RealtimeStreamMonitor:
     """Manages real-time monitoring of Reddit streams for keyword mentions"""
     
@@ -29,7 +24,6 @@ class RealtimeStreamMonitor:
         self.monitoring_threads = []
         self.matching_engine = GenericMatchingEngine()
         self.monitoring_start_time = None
-        self.poll_interval = REDDIT_POLL_INTERVAL_SECS
     
     def start_stream_monitoring(self, keywords=None):
         """Start monitoring Reddit streams for keyword mentions"""
@@ -134,7 +128,7 @@ class RealtimeStreamMonitor:
     
     def _monitor_submissions_stream(self, subreddit, keywords):
         """Monitor submissions stream for mentions (reconnects after errors / rate limits)."""
-        backoff_secs = self.poll_interval
+        backoff_secs = 30
         max_backoff_secs = 600
         while not self.stop_monitoring:
             try:
@@ -143,21 +137,15 @@ class RealtimeStreamMonitor:
                     self._rotate_reddit_client()
                 live_subreddit = self.reddit.subreddit(subreddit.display_name)
                 logger.debug(
-                    "platform=reddit submissions stream r/%s poll_interval=%ss",
-                    live_subreddit.display_name, self.poll_interval,
+                    "platform=reddit submissions stream r/%s skip_existing=True",
+                    live_subreddit.display_name,
                 )
 
-                for submission in live_subreddit.stream.submissions(
-                    skip_existing=True, pause_after=-1
-                ):
+                for submission in live_subreddit.stream.submissions(skip_existing=True):
                     if self.stop_monitoring:
                         break
-                    if submission is None:
-                        # End of this listing response — wait before the next Reddit poll.
-                        time.sleep(self.poll_interval)
-                        continue
                     self._check_submission_for_keywords(submission, keywords)
-                    backoff_secs = self.poll_interval
+                    backoff_secs = 30
 
             except Exception as e:
                 logger.error("platform=reddit submissions stream r/%s failed: %s", subreddit.display_name, e)
@@ -172,7 +160,7 @@ class RealtimeStreamMonitor:
 
     def _monitor_comments_stream(self, subreddit, keywords):
         """Monitor comments stream for mentions (reconnects after errors / rate limits)."""
-        backoff_secs = self.poll_interval
+        backoff_secs = 30
         max_backoff_secs = 600
         while not self.stop_monitoring:
             try:
@@ -180,20 +168,15 @@ class RealtimeStreamMonitor:
                     self._rotate_reddit_client()
                 live_subreddit = self.reddit.subreddit(subreddit.display_name)
                 logger.debug(
-                    "platform=reddit comments stream r/%s poll_interval=%ss",
-                    live_subreddit.display_name, self.poll_interval,
+                    "platform=reddit comments stream r/%s skip_existing=True",
+                    live_subreddit.display_name,
                 )
 
-                for comment in live_subreddit.stream.comments(
-                    skip_existing=True, pause_after=-1
-                ):
+                for comment in live_subreddit.stream.comments(skip_existing=True):
                     if self.stop_monitoring:
                         break
-                    if comment is None:
-                        time.sleep(self.poll_interval)
-                        continue
                     self._check_comment_for_keywords(comment, keywords)
-                    backoff_secs = self.poll_interval
+                    backoff_secs = 30
 
             except Exception as e:
                 logger.error("platform=reddit comments stream r/%s failed: %s", subreddit.display_name, e)
