@@ -104,7 +104,7 @@ class TwitterService:
         self.last_check_time = None
         self.tweet_cache = {}  # Cache to avoid duplicates
         self.matching_engine = GenericMatchingEngine()
-        self.check_interval = 30  # Check every 30 seconds
+        self.check_interval = 120  # Check every 2 minutes
         # Nitter configuration
         self.nitter_driver = None
         self.nitter_instances = list(DEFAULT_NITTER_INSTANCES)
