@@ -8,7 +8,7 @@ import time
 import threading
 # snscrape intentionally not used
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone as datetime_timezone
 from django.utils import timezone
 import logging
 import re
@@ -65,22 +65,31 @@ def _create_driver(headless: bool = True, user_data_dir: Optional[str] = None):
 def _build_search_url(
     instance: str,
     query: str,
-    include_replies: bool = False,
-    include_empty_range_params: bool = True,
 ) -> str:
     base = _normalize_instance_url(instance)
-    # Exact format requested:
-    # https://<instance>/search?f=tweets&q=<query>&e-nativeretweets=on&since=&until=&near=
+    since = timezone.now().astimezone(datetime_timezone.utc).date().isoformat()
     params = [
         "f=tweets",
         f"q={quote_plus(query)}",
+        "e-nativeretweets=on",
+        f"since={since}",
+        "until=",
+        "min_faves=",
     ]
-    # if include_replies:
-    #     params.append("f-replies=on")
-    params.append("e-nativeretweets=on")
-    if include_empty_range_params:
-        params.extend(["since=", "until=", "near="])
     return f"{base}/search?{'&'.join(params)}"
+
+
+def _parse_nitter_date(item) -> Optional[datetime]:
+    """Parse the canonical UTC timestamp exposed in `.tweet-date a[title]`."""
+    try:
+        title = item.find_element(By.CSS_SELECTOR, ".tweet-date a").get_attribute("title")
+        if not title:
+            return None
+        normalized = re.sub(r"\s+", " ", title.replace("·", " ").replace("UTC", "")).strip()
+        parsed = datetime.strptime(normalized, "%b %d, %Y %I:%M %p")
+        return parsed.replace(tzinfo=datetime_timezone.utc)
+    except (ValueError, WebDriverException):
+        return None
 
 
 # Retweet detection removed; some instances mislabel items
@@ -205,15 +214,17 @@ class TwitterService:
         results: List[Dict] = []
         self._ensure_nitter_driver()
 
-        # Determine whether to include replies in query string
         wants_replies = ContentType.COMMENTS.value in (keyword.content_types or [])
+        wants_posts = ContentType.BODY.value in (keyword.content_types or [])
+        cutoff = timezone.now() - timedelta(hours=24)
+        timeline_loaded = False
         for inst in self.nitter_instances:
                 # skip instances in cooldown for 2 minutes
                 now = time.time()
                 until_ts = self.instance_cooldowns.get(inst, 0)
                 if now < until_ts:
                     continue
-                url = _build_search_url(inst, keyword.keyword, include_replies=wants_replies, include_empty_range_params=True)
+                url = _build_search_url(inst, keyword.keyword)
                 try:
                     # Preflight: visit instance root to allow cookies/JS to set state
                     base_url = _normalize_instance_url(inst)
@@ -241,6 +252,7 @@ class TwitterService:
                         EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".timeline-item"))
                     )
                     items = self.nitter_driver.find_elements(By.CSS_SELECTOR, ".timeline-item")
+                    timeline_loaded = True
                     if not items:
                         # No items found
                         pass
@@ -256,6 +268,12 @@ class TwitterService:
 
                         text = safe_text(".tweet-content")
                         username = safe_text(".username").lstrip("@")
+                        tweet_date = _parse_nitter_date(el)
+                        if tweet_date is None or tweet_date < cutoff:
+                            continue
+                        is_reply = bool(el.find_elements(By.CSS_SELECTOR, ".replying-to"))
+                        if (is_reply and not wants_replies) or (not is_reply and not wants_posts):
+                            continue
                         tweet_id = ""
                         twitter_url = ""
                         nitter_url = ""
@@ -279,13 +297,13 @@ class TwitterService:
                             'content': text,
                             'author': username,
                             'author_id': None,
-                            'date': timezone.now(),
+                            'date': tweet_date,
                             'url': twitter_url or nitter_url,
                             'nitter_url': nitter_url,
                             'reply_count': 0,
                             'retweet_count': 0,
                             'like_count': 0,
-                            'is_reply': False,  # tweets page primarily; replies still may appear threaded
+                            'is_reply': is_reply,
                             'parent_tweet_id': None,
                             'hashtags': [],
                             'mentions': [],
@@ -307,9 +325,9 @@ class TwitterService:
                     self._cooldown_instance(inst, minutes=1)
                     continue
         # Fallback: if nothing found and cooldowns may have skipped all instances, try a second pass ignoring cooldowns
-        if not results and self.nitter_instances:
+        if not results and not timeline_loaded and self.nitter_instances:
             for inst in self.nitter_instances:
-                url = _build_search_url(inst, keyword.keyword, include_replies=wants_replies, include_empty_range_params=True)
+                url = _build_search_url(inst, keyword.keyword)
                 try:
                     self._restart_driver()
                     logger.info(f"Retrying (ignore cooldown) URL: {url}")
@@ -327,6 +345,12 @@ class TwitterService:
                                 return ""
                         text = safe_text(".tweet-content")
                         username = safe_text(".username").lstrip("@")
+                        tweet_date = _parse_nitter_date(el)
+                        if tweet_date is None or tweet_date < cutoff:
+                            continue
+                        is_reply = bool(el.find_elements(By.CSS_SELECTOR, ".replying-to"))
+                        if (is_reply and not wants_replies) or (not is_reply and not wants_posts):
+                            continue
                         tweet_id = ""
                         twitter_url = ""
                         nitter_url = ""
@@ -348,13 +372,13 @@ class TwitterService:
                             'content': text,
                             'author': username,
                             'author_id': None,
-                            'date': timezone.now(),
+                            'date': tweet_date,
                             'url': twitter_url or nitter_url,
                             'nitter_url': nitter_url,
                             'reply_count': 0,
                             'retweet_count': 0,
                             'like_count': 0,
-                            'is_reply': False,
+                            'is_reply': is_reply,
                             'parent_tweet_id': None,
                             'hashtags': [],
                             'mentions': [],
@@ -414,23 +438,15 @@ class TwitterService:
     def _process_tweet_for_keyword(self, tweet: Dict, keyword: Keyword):
         """Process a tweet and check for keyword matches"""
         try:
-            # Check content types based on keyword settings
             content_types_to_check = keyword.content_types or [ContentType.BODY.value]
-            
-            for content_type in content_types_to_check:
-                if content_type == ContentType.BODY.value:
-                    # Main tweet content
-                    self._check_tweet_content(tweet, keyword, ContentType.BODY.value)
-                    
-                elif content_type == ContentType.COMMENTS.value:
-                    # Only process if it's a reply
-                    if tweet.get('is_reply'):
-                        self._check_tweet_content(tweet, keyword, ContentType.COMMENTS.value)
-                        
-                elif content_type == ContentType.TITLES.value:
-                    # Skip TITLES for Twitter (not applicable)
-                    logger.debug(f"Skipping TITLES content type for Twitter tweet {tweet['id']}")
-                    
+
+            if tweet.get('is_reply'):
+                if ContentType.COMMENTS.value in content_types_to_check:
+                    self._check_tweet_content(tweet, keyword, ContentType.COMMENTS.value)
+                return
+
+            if ContentType.BODY.value in content_types_to_check:
+                self._check_tweet_content(tweet, keyword, ContentType.BODY.value)
         except Exception as e:
             logger.error(f"Error processing tweet {tweet.get('id')}: {e}")
     
