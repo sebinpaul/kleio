@@ -13,7 +13,6 @@ from django.utils import timezone
 import logging
 import re
 from urllib.parse import quote_plus
-import random
 
 # Add the BE directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
@@ -24,17 +23,40 @@ from core.services.matching_engine import GenericMatchingEngine, MatchContext
 from core.services.email_service import email_notification_service
 from core.services.chrome_driver import create_driver as create_chrome_driver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_NITTER_INSTANCES: List[str] = [
+    "https://nitter.net",
     "https://xcancel.com",
     "https://nitter.tiekoetter.com",
-    "https://nitter.net"
 ]
+
+# Hard floor between any Nitter navigations (including between keywords/instances).
+NITTER_MIN_REQUEST_INTERVAL_SECS = 60
+CF_CHALLENGE_TIMEOUT_SECS = 45
+TIMELINE_READY_TIMEOUT_SECS = 12
+
+_RATE_LIMIT_MARKERS = (
+    "rate limit",
+    "rate-limited",
+    "ratelimited",
+    "too many requests",
+    "429",
+    "instance has been rate limited",
+)
+_EMPTY_MARKERS = (
+    "no items found",
+    "no results",
+    "nothing to show",
+)
+_CHALLENGE_MARKERS = (
+    "verifying your request",
+    "/check/",
+    "just a moment",
+    "cf-browser-verification",
+)
 
 
 def _normalize_instance_url(value: str) -> str:
@@ -62,19 +84,17 @@ def _create_driver(headless: bool = True, user_data_dir: Optional[str] = None):
         "twitter", headless=headless, user_data_dir=user_data_dir
     )
 
+
 def _build_search_url(
     instance: str,
     query: str,
 ) -> str:
+    """Build a Nitter search URL. Recency is enforced in-process (24h cutoff)."""
     base = _normalize_instance_url(instance)
-    since = timezone.now().astimezone(datetime_timezone.utc).date().isoformat()
     params = [
         "f=tweets",
         f"q={quote_plus(query)}",
         "e-nativeretweets=on",
-        f"since={since}",
-        "until=",
-        "min_faves=",
     ]
     return f"{base}/search?{'&'.join(params)}"
 
@@ -92,6 +112,16 @@ def _parse_nitter_date(item) -> Optional[datetime]:
         return None
 
 
+def _page_text_blob(driver) -> str:
+    title = (driver.title or "").lower()
+    try:
+        body = (driver.find_element(By.TAG_NAME, "body").text or "").lower()
+    except Exception:
+        body = ""
+    source = (driver.page_source or "").lower()
+    return f"{title}\n{body}\n{source}"
+
+
 # Retweet detection removed; some instances mislabel items
 
 
@@ -105,11 +135,13 @@ class TwitterService:
         self.tweet_cache = {}  # Cache to avoid duplicates
         self.matching_engine = GenericMatchingEngine()
         self._cycle_mentions = 0
-        self.check_interval = 120  # Check every 2 minutes
+        # Cycle sleep is secondary; NITTER_MIN_REQUEST_INTERVAL_SECS paces navigations.
+        self.check_interval = 60
         # Nitter configuration
         self.nitter_driver = None
         self.nitter_instances = list(DEFAULT_NITTER_INSTANCES)
         self.instance_cooldowns: Dict[str, float] = {}
+        self._last_nitter_request_at = 0.0
         # Headless default
         self.headless = True
         
@@ -155,8 +187,6 @@ class TwitterService:
             except Exception as e:
                 logger.error("platform=twitter monitoring loop failed: %s", e)
                 time.sleep(60)  # Wait longer on error
-            # small pause between cycles to avoid hammering instances
-            time.sleep(1)
     
     def _check_for_new_tweets(self, keywords: List[Keyword]):
         """Check for new tweets matching keywords"""
@@ -166,10 +196,11 @@ class TwitterService:
             tweets_seen = 0
             
             for keyword in keywords:
+                if not self.is_monitoring:
+                    break
                 if not self._should_monitor_keyword(keyword):
                     continue
                 
-                # Nitter-only search
                 logger.debug("platform=twitter searching keyword='%s'", keyword.keyword)
                 try:
                     tweets = self._search_tweets_via_nitter(keyword, limit=20)
@@ -214,210 +245,213 @@ class TwitterService:
         except Exception:
             pass
 
-    # Removed debug HTML saving to avoid file creation
+    def _throttle_nitter_request(self) -> None:
+        """Ensure at least NITTER_MIN_REQUEST_INTERVAL_SECS between any Nitter navigations."""
+        elapsed = time.time() - self._last_nitter_request_at
+        remaining = NITTER_MIN_REQUEST_INTERVAL_SECS - elapsed
+        if remaining > 0:
+            logger.debug("platform=twitter throttling %.0fs before next request", remaining)
+            # Sleep in small chunks so stop_stream_monitoring can end promptly.
+            deadline = time.time() + remaining
+            while self.is_monitoring and time.time() < deadline:
+                time.sleep(min(1.0, deadline - time.time()))
+
+    def _nitter_get(self, url: str) -> None:
+        """Navigate to a Nitter URL, enforcing the global min request interval."""
+        if not self.is_monitoring:
+            return
+        self._throttle_nitter_request()
+        if not self.is_monitoring:
+            return
+        self._ensure_nitter_driver()
+        logger.debug("platform=twitter fetching url=%s", url)
+        self.nitter_driver.get(url)
+        self._last_nitter_request_at = time.time()
+
+    def _wait_out_challenge(self, timeout: float = CF_CHALLENGE_TIMEOUT_SECS) -> bool:
+        """Wait until Cloudflare/Nitter challenge clears. Returns False on timeout."""
+        deadline = time.time() + timeout
+        challenged = False
+        while time.time() < deadline and self.is_monitoring:
+            blob = _page_text_blob(self.nitter_driver)
+            if any(marker in blob for marker in _CHALLENGE_MARKERS):
+                challenged = True
+                time.sleep(1.0)
+                continue
+            if challenged:
+                logger.info("platform=twitter challenge cleared")
+            return True
+        return False
+
+    def _classify_nitter_page(self) -> str:
+        """Return one of: timeline | empty | rate_limited | challenge | unknown."""
+        blob = _page_text_blob(self.nitter_driver)
+        if any(marker in blob for marker in _CHALLENGE_MARKERS):
+            return "challenge"
+        if any(marker in blob for marker in _RATE_LIMIT_MARKERS):
+            return "rate_limited"
+        items = self.nitter_driver.find_elements(By.CSS_SELECTOR, ".timeline-item")
+        if items:
+            return "timeline"
+        if any(marker in blob for marker in _EMPTY_MARKERS):
+            return "empty"
+        # A loaded search page with a timeline container but no items is empty.
+        if self.nitter_driver.find_elements(By.CSS_SELECTOR, ".timeline, #timeline, .timeline-container"):
+            return "empty"
+        return "unknown"
+
+    def _wait_for_search_ready(self, timeout: float = TIMELINE_READY_TIMEOUT_SECS) -> str:
+        """Wait briefly for a classifiable search page, then return its status."""
+        deadline = time.time() + timeout
+        last_status = "unknown"
+        while time.time() < deadline and self.is_monitoring:
+            last_status = self._classify_nitter_page()
+            if last_status != "unknown":
+                return last_status
+            time.sleep(0.5)
+        return last_status
+
+    def _parse_timeline_items(
+        self,
+        inst: str,
+        *,
+        wants_replies: bool,
+        wants_posts: bool,
+        cutoff: datetime,
+        limit: int,
+    ) -> List[Dict]:
+        results: List[Dict] = []
+        items = self.nitter_driver.find_elements(By.CSS_SELECTOR, ".timeline-item")
+        for el in items[: max(1, int(limit))]:
+            def safe_text(selector: str) -> str:
+                try:
+                    return el.find_element(By.CSS_SELECTOR, selector).text.strip()
+                except Exception:
+                    return ""
+
+            text = safe_text(".tweet-content")
+            username = safe_text(".username").lstrip("@")
+            tweet_date = _parse_nitter_date(el)
+            if tweet_date is None or tweet_date < cutoff:
+                continue
+            is_reply = bool(el.find_elements(By.CSS_SELECTOR, ".replying-to"))
+            if (is_reply and not wants_replies) or (not is_reply and not wants_posts):
+                continue
+            tweet_id = ""
+            twitter_url = ""
+            nitter_url = ""
+            try:
+                link_elem = el.find_element(By.CSS_SELECTOR, ".tweet-link")
+                href = link_elem.get_attribute("href") or ""
+                if href:
+                    nitter_url = f"{_normalize_instance_url(inst)}{href}"
+                    id_match = re.search(r"/status/(\d+)", href)
+                    tweet_id = id_match.group(1) if id_match else ""
+                    if tweet_id and username:
+                        twitter_url = f"https://x.com/{username}/status/{tweet_id}"
+            except Exception:
+                pass
+
+            if not (tweet_id or nitter_url):
+                continue
+
+            results.append({
+                'id': str(tweet_id or nitter_url),
+                'content': text,
+                'author': username,
+                'author_id': None,
+                'date': tweet_date,
+                'url': twitter_url or nitter_url,
+                'nitter_url': nitter_url,
+                'reply_count': 0,
+                'retweet_count': 0,
+                'like_count': 0,
+                'is_reply': is_reply,
+                'parent_tweet_id': None,
+                'hashtags': [],
+                'mentions': [],
+            })
+        return results
 
     def _search_tweets_via_nitter(self, keyword: Keyword, limit: int = 20) -> List[Dict]:
-        """Search using Nitter instances as a fallback.
-        Maps results to the same structure used by snscrape branch.
-        """
+        """Search Nitter instances for a keyword. One navigated URL = one throttled request."""
         results: List[Dict] = []
         self._ensure_nitter_driver()
 
         wants_replies = ContentType.COMMENTS.value in (keyword.content_types or [])
         wants_posts = ContentType.BODY.value in (keyword.content_types or [])
         cutoff = timezone.now() - timedelta(hours=24)
-        timeline_loaded = False
+
         for inst in self.nitter_instances:
-                # skip instances in cooldown for 2 minutes
-                now = time.time()
-                until_ts = self.instance_cooldowns.get(inst, 0)
-                if now < until_ts:
-                    continue
-                url = _build_search_url(inst, keyword.keyword)
-                try:
-                    # Preflight: visit instance root to allow cookies/JS to set state
-                    base_url = _normalize_instance_url(inst)
-                    try:
-                        self.nitter_driver.get(base_url)
-                        time.sleep(random.uniform(1.0, 2.0))
-                    except Exception:
-                        pass
-                    logger.debug("platform=twitter fetching url=%s", url)
-                    self.nitter_driver.get(url)
-                    time.sleep(random.uniform(1.0, 2.0))
-                    # Detect anti-bot page early
-                    page_title = self.nitter_driver.title or ""
-                    page_source = self.nitter_driver.page_source or ""
-                    if ("Verifying your request" in page_title) or ("/check/" in page_source):
-                        logger.warning("platform=twitter anti-bot page on %s; retrying before cooldown", inst)
-                        # Retry once after restarting the browser
-                        if self._retry_instance_once(inst, url):
-                            # Successful retry; proceed to parse items
-                            pass
-                        else:
-                            self._cooldown_instance(inst, minutes=10)
-                            continue
-                    WebDriverWait(self.nitter_driver, 30).until(
-                        EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".timeline-item"))
-                    )
-                    items = self.nitter_driver.find_elements(By.CSS_SELECTOR, ".timeline-item")
-                    timeline_loaded = True
-                    if not items:
-                        # No items found
-                        pass
-                    for el in items[: max(1, int(limit))]:
-                        time.sleep(random.uniform(0.5, 1.5))
-                        # Do not skip items; some instances mislabel retweets
-                        # Extract fields
-                        def safe_text(selector: str) -> str:
-                            try:
-                                return el.find_element(By.CSS_SELECTOR, selector).text.strip()
-                            except Exception:
-                                return ""
+            if not self.is_monitoring:
+                break
+            normalized = _normalize_instance_url(inst)
+            until_ts = self.instance_cooldowns.get(normalized, 0)
+            if time.time() < until_ts:
+                continue
 
-                        text = safe_text(".tweet-content")
-                        username = safe_text(".username").lstrip("@")
-                        tweet_date = _parse_nitter_date(el)
-                        if tweet_date is None or tweet_date < cutoff:
-                            continue
-                        is_reply = bool(el.find_elements(By.CSS_SELECTOR, ".replying-to"))
-                        if (is_reply and not wants_replies) or (not is_reply and not wants_posts):
-                            continue
-                        tweet_id = ""
-                        twitter_url = ""
-                        nitter_url = ""
-                        try:
-                            link_elem = el.find_element(By.CSS_SELECTOR, ".tweet-link")
-                            href = link_elem.get_attribute("href") or ""
-                            if href:
-                                nitter_url = f"{_normalize_instance_url(inst)}{href}"
-                                id_match = re.search(r"/status/(\d+)", href)
-                                tweet_id = id_match.group(1) if id_match else ""
-                                if tweet_id and username:
-                                    twitter_url = f"https://x.com/{username}/status/{tweet_id}"
-                        except Exception:
-                            pass
-
-                        if not (tweet_id or nitter_url):
-                            continue
-
-                        results.append({
-                            'id': str(tweet_id or nitter_url),
-                            'content': text,
-                            'author': username,
-                            'author_id': None,
-                            'date': tweet_date,
-                            'url': twitter_url or nitter_url,
-                            'nitter_url': nitter_url,
-                            'reply_count': 0,
-                            'retweet_count': 0,
-                            'like_count': 0,
-                            'is_reply': is_reply,
-                            'parent_tweet_id': None,
-                            'hashtags': [],
-                            'mentions': [],
-                        })
-                    if results:
-                        return results[:limit]
-                except TimeoutException:
-                    logger.warning("platform=twitter instance timed out %s url=%s", inst, url)
-                    self._cooldown_instance(inst, minutes=2)
-                    self._restart_driver()
-                    continue
-                except WebDriverException as e:
-                    logger.warning("platform=twitter instance webdriver error %s (%s) url=%s", inst, e.__class__.__name__, url)
-                    self._cooldown_instance(inst, minutes=2)
-                    self._restart_driver()
-                    continue
-                except Exception as e:
-                    logger.warning("platform=twitter instance failed %s (%s) url=%s", inst, e, url)
-                    self._cooldown_instance(inst, minutes=1)
-                    continue
-        # Fallback: if nothing found and cooldowns may have skipped all instances, try a second pass ignoring cooldowns
-        if not results and not timeline_loaded and self.nitter_instances:
-            for inst in self.nitter_instances:
-                url = _build_search_url(inst, keyword.keyword)
-                try:
-                    self._restart_driver()
-                    logger.debug("platform=twitter retrying (ignore cooldown) url=%s", url)
-                    self.nitter_driver.get(url)
-                    time.sleep(random.uniform(1.0, 2.0))
-                    WebDriverWait(self.nitter_driver, 20).until(
-                        EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".timeline-item"))
-                    )
-                    items = self.nitter_driver.find_elements(By.CSS_SELECTOR, ".timeline-item")
-                    for el in items[: max(1, int(limit))]:
-                        def safe_text(selector: str) -> str:
-                            try:
-                                return el.find_element(By.CSS_SELECTOR, selector).text.strip()
-                            except Exception:
-                                return ""
-                        text = safe_text(".tweet-content")
-                        username = safe_text(".username").lstrip("@")
-                        tweet_date = _parse_nitter_date(el)
-                        if tweet_date is None or tweet_date < cutoff:
-                            continue
-                        is_reply = bool(el.find_elements(By.CSS_SELECTOR, ".replying-to"))
-                        if (is_reply and not wants_replies) or (not is_reply and not wants_posts):
-                            continue
-                        tweet_id = ""
-                        twitter_url = ""
-                        nitter_url = ""
-                        try:
-                            link_elem = el.find_element(By.CSS_SELECTOR, ".tweet-link")
-                            href = link_elem.get_attribute("href") or ""
-                            if href:
-                                nitter_url = f"{_normalize_instance_url(inst)}{href}"
-                                id_match = re.search(r"/status/(\d+)", href)
-                                tweet_id = id_match.group(1) if id_match else ""
-                                if tweet_id and username:
-                                    twitter_url = f"https://x.com/{username}/status/{tweet_id}"
-                        except Exception:
-                            pass
-                        if not (tweet_id or nitter_url):
-                            continue
-                        results.append({
-                            'id': str(tweet_id or nitter_url),
-                            'content': text,
-                            'author': username,
-                            'author_id': None,
-                            'date': tweet_date,
-                            'url': twitter_url or nitter_url,
-                            'nitter_url': nitter_url,
-                            'reply_count': 0,
-                            'retweet_count': 0,
-                            'like_count': 0,
-                            'is_reply': is_reply,
-                            'parent_tweet_id': None,
-                            'hashtags': [],
-                            'mentions': [],
-                        })
-                    if results:
-                        break
-                except Exception:
-                    continue
-        return results[:limit]
-
-    def _retry_instance_once(self, inst: str, url: str) -> bool:
-        try:
-            self._restart_driver()
-            base_url = _normalize_instance_url(inst)
+            url = _build_search_url(inst, keyword.keyword)
             try:
-                self.nitter_driver.get(base_url)
-                time.sleep(random.uniform(1.0, 2.0))
-            except Exception:
-                pass
-            self.nitter_driver.get(url)
-            time.sleep(random.uniform(1.0, 2.0))
-            title = self.nitter_driver.title or ""
-            src = self.nitter_driver.page_source or ""
-            if ("Verifying your request" not in title) and ("/check/" not in src):
-                return True
-        except Exception:
-            pass
-        return False
-    
-    # Removed legacy time window logic (only relevant to snscrape)
+                self._nitter_get(url)
+                if not self.is_monitoring:
+                    break
+
+                if not self._wait_out_challenge():
+                    logger.warning("platform=twitter challenge not cleared on %s", inst)
+                    self._cooldown_instance(inst, minutes=10)
+                    continue
+
+                status = self._wait_for_search_ready()
+                if status == "challenge":
+                    logger.warning("platform=twitter still challenged on %s", inst)
+                    self._cooldown_instance(inst, minutes=10)
+                    continue
+                if status == "rate_limited":
+                    logger.warning("platform=twitter rate limited on %s", inst)
+                    self._cooldown_instance(inst, minutes=15)
+                    continue
+                if status == "empty":
+                    logger.debug("platform=twitter empty results on %s keyword='%s'", inst, keyword.keyword)
+                    # Valid empty page — no cooldown, try next instance.
+                    continue
+                if status == "unknown":
+                    logger.warning("platform=twitter unreadable page on %s", inst)
+                    self._cooldown_instance(inst, minutes=2)
+                    self._restart_driver()
+                    continue
+
+                results = self._parse_timeline_items(
+                    inst,
+                    wants_replies=wants_replies,
+                    wants_posts=wants_posts,
+                    cutoff=cutoff,
+                    limit=limit,
+                )
+                if results:
+                    return results[:limit]
+                logger.debug(
+                    "platform=twitter timeline loaded but no matching tweets on %s keyword='%s'",
+                    inst, keyword.keyword,
+                )
+            except TimeoutException:
+                logger.warning("platform=twitter instance timed out %s url=%s", inst, url)
+                self._cooldown_instance(inst, minutes=2)
+                self._restart_driver()
+                continue
+            except WebDriverException as e:
+                logger.warning(
+                    "platform=twitter instance webdriver error %s (%s) url=%s",
+                    inst, e.__class__.__name__, url,
+                )
+                self._cooldown_instance(inst, minutes=2)
+                self._restart_driver()
+                continue
+            except Exception as e:
+                logger.warning("platform=twitter instance failed %s (%s) url=%s", inst, e, url)
+                self._cooldown_instance(inst, minutes=1)
+                continue
+
+        return results[:limit]
     
     def _is_new_tweet(self, tweet: Dict, keyword: Keyword) -> bool:
         """Check if tweet is new and should be processed"""
