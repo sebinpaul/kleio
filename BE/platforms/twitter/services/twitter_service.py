@@ -37,10 +37,8 @@ DEFAULT_NITTER_INSTANCES: List[str] = [
     "https://lightbrd.com/"
 ]
 
-# Hard floor between any Nitter navigations (including between keywords/instances).
-NITTER_MIN_REQUEST_INTERVAL_SECS = 60
-CF_CHALLENGE_TIMEOUT_SECS = 45
-TIMELINE_READY_TIMEOUT_SECS = 12
+# Hard floor between any Nitter navigations (keywords and instances share this clock).
+NITTER_MIN_REQUEST_INTERVAL_SECS = 300
 
 _RATE_LIMIT_MARKERS = (
     "rate limit",
@@ -56,10 +54,17 @@ _EMPTY_MARKERS = (
     "nothing to show",
 )
 _CHALLENGE_MARKERS = (
+    "performing security verification",
+    "security service to protect",
     "verifying your request",
-    "/check/",
+    "verifying your browser",
+    "verifying...",
+    "checking your browser",
     "just a moment",
+    "making sure you're not a bot",
     "cf-browser-verification",
+    "/antibot/",
+    "/check/",
 )
 
 
@@ -117,13 +122,13 @@ def _parse_nitter_date(item) -> Optional[datetime]:
 
 
 def _page_text_blob(driver) -> str:
+    """Visible text only. page_source would match CDN asset paths on good pages."""
     title = (driver.title or "").lower()
     try:
         body = (driver.find_element(By.TAG_NAME, "body").text or "").lower()
     except Exception:
         body = ""
-    source = (driver.page_source or "").lower()
-    return f"{title}\n{body}\n{source}"
+    return f"{title}\n{body}"
 
 
 # Retweet detection removed; some instances mislabel items
@@ -139,8 +144,8 @@ class TwitterService:
         self.tweet_cache = {}  # Cache to avoid duplicates
         self.matching_engine = GenericMatchingEngine()
         self._cycle_mentions = 0
-        # Cycle sleep is secondary; NITTER_MIN_REQUEST_INTERVAL_SECS paces navigations.
-        self.check_interval = 60
+        # Same floor as inter-request throttle; extra idle after a full keyword pass.
+        self.check_interval = NITTER_MIN_REQUEST_INTERVAL_SECS
         # Nitter configuration
         self.nitter_driver = None
         self.nitter_instances = list(DEFAULT_NITTER_INSTANCES)
@@ -272,48 +277,27 @@ class TwitterService:
         self.nitter_driver.get(url)
         self._last_nitter_request_at = time.time()
 
-    def _wait_out_challenge(self, timeout: float = CF_CHALLENGE_TIMEOUT_SECS) -> bool:
-        """Wait until Cloudflare/Nitter challenge clears. Returns False on timeout."""
-        deadline = time.time() + timeout
-        challenged = False
-        while time.time() < deadline and self.is_monitoring:
-            blob = _page_text_blob(self.nitter_driver)
-            if any(marker in blob for marker in _CHALLENGE_MARKERS):
-                challenged = True
-                time.sleep(1.0)
-                continue
-            if challenged:
-                logger.info("platform=twitter challenge cleared")
-            return True
-        return False
-
     def _classify_nitter_page(self) -> str:
-        """Return one of: timeline | empty | rate_limited | challenge | unknown."""
+        """Classify the loaded page: timeline | empty | rate_limited | challenge | unknown.
+
+        Nitter is server-rendered, so driver.get() has already returned the final
+        page; there is nothing to poll for.
+        """
+        # Tweets win outright — never let a marker demote a page that has results.
+        if self.nitter_driver.find_elements(By.CSS_SELECTOR, ".timeline-item"):
+            return "timeline"
+
         blob = _page_text_blob(self.nitter_driver)
         if any(marker in blob for marker in _CHALLENGE_MARKERS):
             return "challenge"
         if any(marker in blob for marker in _RATE_LIMIT_MARKERS):
             return "rate_limited"
-        items = self.nitter_driver.find_elements(By.CSS_SELECTOR, ".timeline-item")
-        if items:
-            return "timeline"
         if any(marker in blob for marker in _EMPTY_MARKERS):
             return "empty"
         # A loaded search page with a timeline container but no items is empty.
         if self.nitter_driver.find_elements(By.CSS_SELECTOR, ".timeline, #timeline, .timeline-container"):
             return "empty"
         return "unknown"
-
-    def _wait_for_search_ready(self, timeout: float = TIMELINE_READY_TIMEOUT_SECS) -> str:
-        """Wait briefly for a classifiable search page, then return its status."""
-        deadline = time.time() + timeout
-        last_status = "unknown"
-        while time.time() < deadline and self.is_monitoring:
-            last_status = self._classify_nitter_page()
-            if last_status != "unknown":
-                return last_status
-            time.sleep(0.5)
-        return last_status
 
     def _parse_timeline_items(
         self,
@@ -385,6 +369,7 @@ class TwitterService:
         wants_replies = ContentType.COMMENTS.value in (keyword.content_types or [])
         wants_posts = ContentType.BODY.value in (keyword.content_types or [])
         cutoff = timezone.now() - timedelta(hours=24)
+        cooldown_mins = max(1, NITTER_MIN_REQUEST_INTERVAL_SECS // 60)
 
         for inst in self.nitter_instances:
             if not self.is_monitoring:
@@ -400,28 +385,26 @@ class TwitterService:
                 if not self.is_monitoring:
                     break
 
-                if not self._wait_out_challenge():
-                    logger.warning("platform=twitter challenge not cleared on %s", inst)
-                    self._cooldown_instance(inst, minutes=10)
-                    continue
-
-                status = self._wait_for_search_ready()
+                status = self._classify_nitter_page()
                 if status == "challenge":
-                    logger.warning("platform=twitter still challenged on %s", inst)
-                    self._cooldown_instance(inst, minutes=10)
+                    # Sitting on the interstitial polling it is itself bot-like.
+                    # Leave immediately and come back after the standard interval.
+                    logger.warning("platform=twitter challenge on %s; backing off", inst)
+                    self._cooldown_instance(inst, minutes=cooldown_mins)
                     continue
                 if status == "rate_limited":
                     logger.warning("platform=twitter rate limited on %s", inst)
-                    self._cooldown_instance(inst, minutes=15)
+                    self._cooldown_instance(inst, minutes=cooldown_mins * 3)
                     continue
                 if status == "empty":
                     logger.debug("platform=twitter empty results on %s keyword='%s'", inst, keyword.keyword)
                     # Valid empty page — no cooldown, try next instance.
                     continue
                 if status == "unknown":
+                    # A blank or unrecognised page is the server's doing, not a
+                    # broken browser, so the driver is left alone.
                     logger.warning("platform=twitter unreadable page on %s", inst)
-                    self._cooldown_instance(inst, minutes=2)
-                    self._restart_driver()
+                    self._cooldown_instance(inst, minutes=cooldown_mins)
                     continue
 
                 results = self._parse_timeline_items(
